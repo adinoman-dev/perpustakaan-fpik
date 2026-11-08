@@ -48,13 +48,14 @@
   </style>
 </head>
 <body class="min-h-screen text-slate-800">
-  <section id="login-screen" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-ocean-950 via-ocean-800 to-cyan-700 px-4 py-10">
-    <div class="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl sm:p-9">
+  <section id="login-screen" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 px-4 py-10" aria-modal="true" role="dialog" aria-labelledby="login-title">
+    <div class="relative w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl sm:p-9">
+      <button id="close-login" type="button" class="absolute right-5 top-5 rounded-lg px-3 py-1 text-slate-500 hover:bg-slate-100" aria-label="Tutup">✕</button>
       <div class="mb-6 text-center">
         <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-ocean-100 text-3xl text-ocean-800"><i class="fa-solid fa-book-open-reader"></i></div>
         <p class="text-xs font-bold uppercase tracking-[.18em] text-ocean-700">Universitas Khairun</p>
-        <h1 class="mt-1 text-2xl font-bold text-slate-900">Perpustakaan FPIK</h1>
-        <p class="mt-2 text-sm text-slate-500">Silakan masuk menggunakan akun perpustakaan Anda.</p>
+        <h2 id="login-title" class="mt-1 text-2xl font-bold text-slate-900">Login Petugas</h2>
+        <p class="mt-2 text-sm text-slate-500">Masuk untuk mengelola koleksi dan layanan perpustakaan.</p>
       </div>
       <form id="login-form" class="space-y-4">
         <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Email</span><input id="login-email" class="field" type="email" autocomplete="username" required placeholder="nama@contoh.ac.id"></label>
@@ -62,10 +63,10 @@
         <button id="login-submit" class="btn-primary w-full" type="submit"><i class="fa-solid fa-right-to-bracket mr-2"></i>Masuk</button>
         <p id="login-error" class="hidden rounded-lg bg-red-50 p-3 text-sm text-red-700" role="alert"></p>
       </form>
-      <p class="mt-5 text-center text-xs leading-5 text-slate-400">Akses hanya untuk akun yang telah didaftarkan oleh administrator perpustakaan.</p>
+      <p class="mt-5 text-center text-xs leading-5 text-slate-400">Akses administrasi hanya untuk akun yang didaftarkan oleh pengelola perpustakaan.</p>
     </div>
   </section>
-  <div id="app-shell" class="hidden">
+  <div id="app-shell">
 
   <header class="bg-gradient-to-r from-ocean-950 via-ocean-800 to-ocean-600 text-white shadow-lg">
     <div class="mx-auto max-w-7xl px-4 sm:px-6">
@@ -88,13 +89,13 @@
           <i class="fa-solid fa-bars text-xl"></i>
         </button>
       </div>
-      <div class="flex items-center justify-between gap-3 pb-3 text-xs text-ocean-100"><span id="signed-in-user">Belum masuk</span><button id="logout-button" class="rounded-lg border border-white/30 px-3 py-1.5 hover:bg-white/10"><i class="fa-solid fa-right-from-bracket mr-1"></i>Keluar</button></div>
+      <div class="flex items-center justify-between gap-3 pb-3 text-xs text-ocean-100"><span id="signed-in-user">Pengunjung umum • Akses katalog publik</span><div class="flex gap-2"><button id="login-button" class="rounded-lg border border-white/40 px-3 py-1.5 font-semibold hover:bg-white/10"><i class="fa-solid fa-right-to-bracket mr-1"></i>Login Petugas</button><button id="logout-button" class="hidden rounded-lg border border-white/30 px-3 py-1.5 hover:bg-white/10"><i class="fa-solid fa-right-from-bracket mr-1"></i>Keluar</button></div></div>
       <nav id="main-nav" class="hidden flex-col gap-1 pb-4 md:flex md:flex-row md:flex-wrap">
         <button class="nav-link active rounded-lg px-4 py-2 text-left text-sm font-semibold hover:bg-white/10" data-page="opac"><i class="fa-solid fa-magnifying-glass mr-2"></i>Katalog OPAC</button>
-        <button class="nav-link rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white" data-page="dashboard"><i class="fa-solid fa-chart-line mr-2"></i>Dashboard Admin</button>
-        <button class="nav-link rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white" data-page="books"><i class="fa-solid fa-book mr-2"></i>Data Buku</button>
-        <button class="nav-link rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white" data-page="circulation"><i class="fa-solid fa-arrows-rotate mr-2"></i>Transaksi Sirkulasi</button>
-        <button class="nav-link rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white" data-page="import"><i class="fa-solid fa-file-csv mr-2"></i>Import Data CSV</button>
+        <button data-page="dashboard" data-staff-only="true" class="nav-link hidden rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white"><i class="fa-solid fa-chart-line mr-2"></i>Dashboard Admin</button>
+        <button data-page="books" data-staff-only="true" class="nav-link hidden rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white"><i class="fa-solid fa-book mr-2"></i>Data Buku</button>
+        <button data-page="circulation" data-staff-only="true" class="nav-link hidden rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white"><i class="fa-solid fa-arrows-rotate mr-2"></i>Transaksi Sirkulasi</button>
+        <button data-page="import" data-staff-only="true" class="nav-link hidden rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white"><i class="fa-solid fa-file-csv mr-2"></i>Import Data CSV</button>
       </nav>
     </div>
   </header>
@@ -120,7 +121,7 @@
     </section>
 
     <section id="page-dashboard" class="page">
-      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">RINGKASAN PERPUSTAKAAN</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Dashboard Admin</h2><p class="mt-2 text-sm text-slate-500">Pantau koleksi, sirkulasi, dan denda dari penyimpanan perangkat ini.</p></div>
+      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">RINGKASAN PERPUSTAKAAN</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Dashboard Admin</h2><p class="mt-2 text-sm text-slate-500">Pantau koleksi, sirkulasi, dan denda perpustakaan.</p></div>
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Total Judul Buku</span><span class="rounded-xl bg-ocean-100 p-3 text-ocean-700"><i class="fa-solid fa-book"></i></span></div><p id="stat-titles" class="mt-4 text-3xl font-bold">0</p><p class="mt-1 text-xs text-slate-400">Judul unik dalam katalog</p></div>
         <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Total Eksemplar</span><span class="rounded-xl bg-cyan-100 p-3 text-cyan-700"><i class="fa-solid fa-layer-group"></i></span></div><p id="stat-copies" class="mt-4 text-3xl font-bold">0</p><p class="mt-1 text-xs text-slate-400">Jumlah stok seluruh buku</p></div>
@@ -218,7 +219,7 @@
     </section>
 
     <div class="mt-10 rounded-2xl border border-ocean-100 bg-white p-4 text-xs leading-5 text-slate-500 shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-4">
-      <p><i class="fa-solid fa-circle-info mr-2 text-ocean-600"></i>Aplikasi demo berbasis penyimpanan lokal browser. Gunakan perangkat dan browser yang sama untuk mengakses data.</p>
+      <p><i class="fa-solid fa-circle-info mr-2 text-ocean-600"></i>Katalog publik terhubung ke basis data perpustakaan. Pengelolaan koleksi dan transaksi hanya tersedia bagi petugas yang masuk.</p>
       <p class="mt-2 shrink-0 sm:mt-0">© <span id="current-year"></span> Perpustakaan FPIK Universitas Khairun</p>
     </div>
   </main>
