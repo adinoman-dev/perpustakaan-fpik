@@ -153,6 +153,13 @@
               <label class="block text-sm font-medium">Stok (eksemplar)<input id="book-stock" class="field mt-1" type="number" min="0" step="1" value="1" required /></label>
               <label class="block text-sm font-medium">Lokasi Rak<input id="book-shelf" class="field mt-1" placeholder="Contoh: A-01" maxlength="80" /></label>
             </div>
+            <label class="block text-sm font-medium">Deskripsi Buku<textarea id="book-description" class="field mt-1" rows="3" maxlength="5000" placeholder="Ringkasan isi atau keterangan buku"></textarea></label>
+            <label class="block text-sm font-medium">Kata Kunci<input id="book-keywords" class="field mt-1" maxlength="500" placeholder="Contoh: mangrove, ekologi pesisir, konservasi" /></label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm font-medium">Jumlah Halaman<input id="book-pages" class="field mt-1" type="number" min="1" step="1" /></label>
+              <label class="block text-sm font-medium">Edisi<input id="book-edition" class="field mt-1" maxlength="100" placeholder="Contoh: Edisi kedua" /></label>
+            </div>
+            <label class="block text-sm font-medium">URL Sampul Buku<input id="book-cover-url" class="field mt-1" type="url" maxlength="1000" placeholder="https://contoh.ac.id/sampul-buku.jpg" /></label>
             <div class="flex flex-wrap gap-2 pt-2"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk mr-2"></i><span id="book-submit-label">Simpan Buku</span></button><button class="btn-muted" id="book-cancel" type="button">Batal</button></div>
           </form>
         </div>
@@ -206,12 +213,12 @@
         <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-7">
           <h3 class="font-bold">Format kolom CSV</h3>
           <p class="mt-2 text-sm leading-6 text-slate-600">Gunakan nama header berikut. Header tidak peka huruf besar/kecil; beberapa variasi nama Indonesia/Inggris juga dikenali.</p>
-          <div class="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs leading-6 text-emerald-300"><code>judul,pengarang,penerbit,tahun,isbn,sub-disiplin,stok,lokasi-rak<br>"Biologi Laut","A. Penulis","Penerbit X",2022,9780000000000,"Ekologi Laut",5,"A-01"</code></div>
+          <div class="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs leading-6 text-emerald-300"><code>judul,pengarang,penerbit,tahun,isbn,sub-disiplin,stok,lokasi-rak,deskripsi,kata-kunci,jumlah-halaman,edisi,url-sampul<br>"Biologi Laut","A. Penulis","Penerbit X",2022,9780000000000,"Ekologi Laut",5,"A-01","Pengantar ekologi laut","ekologi; pesisir",250,"Edisi kedua",https://contoh.ac.id/sampul.jpg</code></div>
           <ul class="mt-4 space-y-2 text-sm text-slate-600">
             <li><i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>Ekspor lembar Excel menjadi CSV UTF-8 (Comma delimited).</li>
             <li><i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>Kolom judul wajib diisi; stok kosong akan dianggap 0.</li>
             <li><i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>Gunakan tanda kutip untuk teks yang mengandung koma.</li>
-            <li><i class="fa-solid fa-circle-info mr-2 text-ocean-600"></i>Data disimpan di localStorage browser, bukan server bersama.</li>
+            <li><i class="fa-solid fa-circle-info mr-2 text-ocean-600"></i>Data katalog disimpan di basis data Supabase saat koneksi tersedia.</li>
           </ul>
           <button id="download-template" class="btn-muted mt-5"><i class="fa-solid fa-download mr-2"></i>Unduh Template CSV</button>
         </div>
