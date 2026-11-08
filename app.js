@@ -12,6 +12,31 @@
   const FINE_PER_DAY = 1000;
 
   let books = readStorage(STORAGE.books, []);
+  let booksFromServer = false;
+
+  function toUiBook(row) { return { id: row.id, title: row.title, author: row.author || '', publisher: row.publisher || '', year: row.publication_year || '', isbn: row.isbn || '', discipline: row.discipline || '', stock: Number(row.stock || 0), shelf: row.shelf || '', createdAt: row.created_at }; }
+  function toDbBook(book) { return { title: book.title, author: book.author || null, publisher: book.publisher || null, publication_year: book.year ? Number(book.year) : null, isbn: book.isbn || null, discipline: book.discipline || null, stock: Number(book.stock || 0), shelf: book.shelf || null }; }
+
+  async function loadBooksFromServer() {
+    const client = window.FPIK_SUPABASE;
+    if (!client) return;
+    booksFromServer = true; // Supabase menjadi sumber data utama saat konfigurasi tersedia.
+    const { data, error } = await client.from('books').select('*').order('title');
+    if (error) { books = []; renderAll(); console.error('Gagal memuat katalog Supabase:', error); showToast('Katalog online belum dapat dibaca. Jalankan SQL kebijakan katalog publik pada panduan.', 'error'); return; }
+    books = (data || []).map(toUiBook);
+    try { localStorage.setItem(STORAGE.books, JSON.stringify(books)); } catch (_) {}
+    renderAll();
+  }
+
+  async function saveBookToServer(book, existingId) {
+    const client = window.FPIK_SUPABASE;
+    if (!client) throw new Error('Koneksi database tidak tersedia.');
+    const payload = toDbBook(book);
+    if (existingId) payload.id = existingId;
+    const { data, error } = await client.from('books').upsert(payload, { onConflict: existingId ? 'id' : 'isbn' }).select().single();
+    if (error) throw error;
+    return toUiBook(data);
+  }
   let loans = readStorage(STORAGE.loans, []);
 
   function readStorage(key, fallback) {
@@ -96,6 +121,7 @@
   }
 
   function showPage(page) {
+    if (['dashboard','books','circulation','import'].includes(page) && !['administrator','petugas'].includes(window.FPIK_CURRENT_USER?.role)) { page = 'opac'; }
     document.querySelectorAll('.page').forEach(section => {
       section.classList.toggle('active', section.id === `page-${page}`);
     });
@@ -109,6 +135,8 @@
     renderAll();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+
+  window.FPIK_SHOW_PAGE = showPage;
 
   function bookAvailable(book) {
     const borrowed = loans.filter(loan => loan.bookId === book.id && !loan.returnDate).length;
@@ -256,7 +284,7 @@
     el('book-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  function deleteBook(id) {
+  async function deleteBook(id) {
     const book = books.find(item => item.id === id);
     if (!book) return;
     if (loans.some(loan => loan.bookId === id && !loan.returnDate)) {
@@ -264,13 +292,15 @@
       return;
     }
     if (!confirm(`Hapus buku "${book.title}" dari katalog?`)) return;
+    if (booksFromServer && window.FPIK_SUPABASE) {
+      const { error } = await window.FPIK_SUPABASE.from('books').delete().eq('id', id);
+      if (error) return showToast(`Gagal menghapus buku: ${error.message}`, 'error');
+    }
     books = books.filter(item => item.id !== id);
-    saveStorage();
-    renderAll();
-    showToast('Data buku berhasil dihapus.');
+    saveStorage(); renderAll(); showToast('Data buku berhasil dihapus.');
   }
 
-  function handleBookSubmit(event) {
+  async function handleBookSubmit(event) {
     event.preventDefault();
     const id = el('book-id').value;
     const title = el('book-title').value.trim();
@@ -289,20 +319,14 @@
       shelf: el('book-shelf').value.trim()
     };
 
-    if (id) {
-      const index = books.findIndex(book => book.id === id);
-      if (index < 0) return showToast('Data buku tidak ditemukan.', 'error');
-      const borrowed = loans.filter(loan => loan.bookId === id && !loan.returnDate).length;
-      if (stock < borrowed) return showToast(`Stok tidak boleh kurang dari jumlah buku yang sedang dipinjam (${borrowed}).`, 'error');
-      books[index] = { ...books[index], ...data };
-      showToast('Data buku berhasil diperbarui.');
-    } else {
-      books.push({ id: uid(), ...data, createdAt: new Date().toISOString() });
-      showToast('Buku berhasil ditambahkan.');
-    }
-    saveStorage();
-    resetBookForm();
-    renderAll();
+    if (!['administrator','petugas'].includes(window.FPIK_CURRENT_USER?.role)) return showToast('Silakan login sebagai petugas.', 'error');
+    try {
+      const saved = booksFromServer ? await saveBookToServer(data, id || null) : { id: id || uid(), ...data, createdAt: new Date().toISOString() };
+      const index = books.findIndex(book => book.id === saved.id);
+      if (index >= 0) books[index] = saved; else books.push(saved);
+      saveStorage(); resetBookForm(); renderAll();
+      showToast(id ? 'Data buku berhasil diperbarui.' : 'Buku berhasil ditambahkan.');
+    } catch (error) { showToast(`Gagal menyimpan buku: ${error.message}`, 'error'); }
   }
 
   function handleLoanSubmit(event) {
@@ -371,7 +395,7 @@
     const file = el('csv-file').files[0];
     if (!file) return showToast('Pilih file CSV terlebih dahulu.', 'error');
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const rows = parseCSV(String(reader.result || ''));
         if (rows.length < 2) throw new Error('CSV tidak memiliki baris data.');
@@ -410,30 +434,32 @@
           });
         });
         if (!imported.length) throw new Error('Tidak ditemukan baris buku dengan judul yang valid.');
+        if (!['administrator','petugas'].includes(window.FPIK_CURRENT_USER?.role)) throw new Error('Login petugas diperlukan untuk mengimpor data.');
 
         const replace = el('import-replace').checked;
         if (replace && loans.some(loan => !loan.returnDate)) {
           throw new Error('Tidak dapat mengganti seluruh katalog karena masih ada peminjaman aktif.');
         }
-        if (replace) books = [];
+        if (replace && booksFromServer) {
+          const { error } = await window.FPIK_SUPABASE.from('books').delete().not('id', 'is', null);
+          if (error) throw error;
+          books = [];
+        } else if (replace) books = [];
 
         let added = 0, updated = 0;
-        imported.forEach(item => {
-          const existing = item.isbn
-            ? books.find(book => book.isbn && book.isbn.toLowerCase() === item.isbn.toLowerCase())
-            : null;
+        for (const item of imported) {
+          const existing = item.isbn ? books.find(book => book.isbn && book.isbn.toLowerCase() === item.isbn.toLowerCase()) : null;
           if (existing) {
             const borrowed = loans.filter(loan => loan.bookId === existing.id && !loan.returnDate).length;
             if (item.stock < borrowed) throw new Error(`Stok CSV untuk "${item.title}" lebih kecil dari jumlah yang sedang dipinjam.`);
-            Object.assign(existing, item);
-            updated++;
-          } else {
-            books.push({ id: uid(), ...item, createdAt: new Date().toISOString() });
-            added++;
           }
-        });
-        saveStorage();
-        renderAll();
+          if (booksFromServer) {
+            const saved = await saveBookToServer(item, existing?.id || null);
+            if (existing) { Object.assign(existing, saved); updated++; } else { books.push(saved); added++; }
+          } else if (existing) { Object.assign(existing, item); updated++; }
+          else { books.push({ id: uid(), ...item, createdAt: new Date().toISOString() }); added++; }
+        }
+        saveStorage(); renderAll();
         const result = el('import-result');
         result.className = 'mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800';
         result.textContent = `Import selesai: ${added} buku ditambahkan, ${updated} buku diperbarui.`;
@@ -496,6 +522,8 @@
     el('download-template').addEventListener('click', downloadTemplate);
 
     renderAll();
+    if (window.FPIK_AUTH_READY) window.FPIK_AUTH_READY.then(loadBooksFromServer);
+    else loadBooksFromServer();
   }
 
   document.addEventListener('DOMContentLoaded', init);
