@@ -14,8 +14,8 @@
   let books = readStorage(STORAGE.books, []);
   let booksFromServer = false;
 
-  function toUiBook(row) { return { id: row.id, title: row.title, author: row.author || '', publisher: row.publisher || '', year: row.publication_year || '', isbn: row.isbn || '', discipline: row.discipline || '', stock: Number(row.stock || 0), shelf: row.shelf || '', createdAt: row.created_at }; }
-  function toDbBook(book) { return { title: book.title, author: book.author || null, publisher: book.publisher || null, publication_year: book.year ? Number(book.year) : null, isbn: book.isbn || null, discipline: book.discipline || null, stock: Number(book.stock || 0), shelf: book.shelf || null }; }
+  function toUiBook(row) { return { id: row.id, title: row.title, author: row.author || '', publisher: row.publisher || '', year: row.publication_year || '', isbn: row.isbn || '', discipline: row.discipline || '', stock: Number(row.stock || 0), shelf: row.shelf || '', description: row.description || '', keywords: row.keywords || '', pages: row.pages || '', edition: row.edition || '', coverUrl: row.cover_url || '', createdAt: row.created_at }; }
+  function toDbBook(book) { return { title: book.title, author: book.author || null, publisher: book.publisher || null, publication_year: book.year ? Number(book.year) : null, isbn: book.isbn || null, discipline: book.discipline || null, stock: Number(book.stock || 0), shelf: book.shelf || null, description: book.description || null, keywords: book.keywords || null, pages: book.pages ? Number(book.pages) : null, edition: book.edition || null, cover_url: book.coverUrl || null }; }
 
   async function loadBooksFromServer() {
     const client = window.FPIK_SUPABASE;
@@ -146,7 +146,7 @@
   function renderCatalog() {
     const query = el('catalog-search').value.trim().toLowerCase();
     const filtered = books.filter(book => [
-      book.title, book.author, book.isbn, book.discipline, book.publisher
+      book.title, book.author, book.isbn, book.discipline, book.publisher, book.description, book.keywords, book.edition
     ].join(' ').toLowerCase().includes(query));
 
     el('catalog-count').textContent = `${filtered.length} judul`;
@@ -163,7 +163,7 @@
       const available = bookAvailable(book);
       return `<article class="flex flex-col rounded-2xl border border-slate-100 bg-white p-5 shadow-soft transition hover:-translate-y-1 hover:shadow-lg">
         <div class="mb-4 flex items-start justify-between gap-3">
-          <span class="rounded-xl bg-ocean-50 p-3 text-xl text-ocean-700"><i class="fa-solid fa-book"></i></span>
+          ${book.coverUrl ? `<img src="${escapeHtml(book.coverUrl)}" alt="Sampul ${escapeHtml(book.title)}" loading="lazy" referrerpolicy="no-referrer" class="h-28 w-20 rounded-lg border border-slate-100 object-cover" onerror="this.style.display='none'">` : '<span class="rounded-xl bg-ocean-50 p-3 text-xl text-ocean-700"><i class="fa-solid fa-book"></i></span>'}
           <span class="rounded-full px-3 py-1 text-xs font-semibold ${available > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">${available} tersedia</span>
         </div>
         <h3 class="text-base font-bold leading-snug text-slate-900">${escapeHtml(book.title)}</h3>
@@ -173,6 +173,8 @@
           <p><i class="fa-solid fa-fish-fins mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.discipline || 'Sub-disiplin belum diisi')}</p>
           <p><i class="fa-solid fa-barcode mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.isbn || 'ISBN tidak tersedia')}</p>
           <p><i class="fa-solid fa-location-dot mr-2 w-3 text-ocean-600"></i>Rak: ${escapeHtml(book.shelf || '-')}</p>
+          ${book.pages ? `<p><i class="fa-regular fa-file-lines mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.pages)} halaman${book.edition ? ` • ${escapeHtml(book.edition)}` : ''}</p>` : ''}
+          ${book.description ? `<p class="line-clamp-3">${escapeHtml(book.description)}</p>` : ''}
         </div>
       </article>`;
     }).join('');
@@ -208,7 +210,7 @@
 
   function renderBooksTable() {
     const query = el('book-table-search').value.trim().toLowerCase();
-    const filtered = books.filter(book => [book.title, book.author, book.isbn].join(' ').toLowerCase().includes(query));
+    const filtered = books.filter(book => [book.title, book.author, book.isbn, book.keywords, book.description, book.discipline].join(' ').toLowerCase().includes(query));
     el('books-table').innerHTML = filtered.length ? filtered.map(book => `<tr class="border-b last:border-0">
       <td class="p-3"><div class="max-w-xs font-semibold text-slate-800">${escapeHtml(book.title)}</div><div class="text-xs text-slate-400">${escapeHtml(book.isbn || '-')}</div></td>
       <td class="p-3">${escapeHtml(book.author || '-')}</td>
@@ -279,6 +281,11 @@
     el('book-discipline').value = book.discipline;
     el('book-stock').value = book.stock;
     el('book-shelf').value = book.shelf;
+    el('book-description').value = book.description || '';
+    el('book-keywords').value = book.keywords || '';
+    el('book-pages').value = book.pages || '';
+    el('book-edition').value = book.edition || '';
+    el('book-cover-url').value = book.coverUrl || '';
     el('book-form-title').textContent = 'Edit Buku';
     el('book-submit-label').textContent = 'Perbarui Buku';
     el('book-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -316,8 +323,15 @@
       isbn: el('book-isbn').value.trim(),
       discipline: el('book-discipline').value.trim(),
       stock,
-      shelf: el('book-shelf').value.trim()
+      shelf: el('book-shelf').value.trim(),
+      description: el('book-description').value.trim(),
+      keywords: el('book-keywords').value.trim(),
+      pages: el('book-pages').value.trim(),
+      edition: el('book-edition').value.trim(),
+      coverUrl: el('book-cover-url').value.trim()
     };
+    if (data.pages && (!Number.isInteger(Number(data.pages)) || Number(data.pages) < 1)) return showToast('Jumlah halaman harus berupa bilangan bulat minimal 1.', 'error');
+    if (data.coverUrl) { try { const u = new URL(data.coverUrl); if (!['http:', 'https:'].includes(u.protocol)) throw new Error(); } catch (_) { return showToast('URL sampul harus diawali http:// atau https://.', 'error'); } }
 
     if (!['administrator','petugas'].includes(window.FPIK_CURRENT_USER?.role)) return showToast('Silakan login sebagai petugas.', 'error');
     try {
@@ -408,7 +422,12 @@
           isbn: ['isbn', 'isbn-10', 'isbn-13'],
           discipline: ['sub-disiplin', 'subdisiplin', 'disiplin', 'bidang-ilmu', 'discipline', 'subject'],
           stock: ['stok', 'jumlah', 'eksemplar', 'stock', 'copies', 'quantity'],
-          shelf: ['lokasi-rak', 'rak', 'lokasi', 'shelf', 'location']
+          shelf: ['lokasi-rak', 'rak', 'lokasi', 'shelf', 'location'],
+          description: ['deskripsi', 'description', 'ringkasan'],
+          keywords: ['kata-kunci', 'katakunci', 'keywords', 'keyword'],
+          pages: ['jumlah-halaman', 'halaman', 'pages', 'page-count'],
+          edition: ['edisi', 'edition'],
+          coverUrl: ['url-sampul', 'sampul', 'cover-url', 'cover_url', 'coverurl']
         };
         const indexFor = key => headers.findIndex(header => aliases[key].includes(header));
         const titleIndex = indexFor('title');
@@ -430,8 +449,10 @@
           imported.push({
             title, author: value('author'), publisher: value('publisher'),
             year: value('year'), isbn: value('isbn'), discipline: value('discipline'),
-            stock, shelf: value('shelf')
+            stock, shelf: value('shelf'), description: value('description'),
+            keywords: value('keywords'), pages: value('pages'), edition: value('edition'), coverUrl: value('coverUrl')
           });
+          if (value('pages') && (!Number.isInteger(Number(value('pages'))) || Number(value('pages')) < 1)) throw new Error(`Jumlah halaman tidak valid pada baris ${rowNumber + 2}.`);
         });
         if (!imported.length) throw new Error('Tidak ditemukan baris buku dengan judul yang valid.');
         if (!['administrator','petugas'].includes(window.FPIK_CURRENT_USER?.role)) throw new Error('Login petugas diperlukan untuk mengimpor data.');
@@ -479,7 +500,7 @@
   }
 
   function downloadTemplate() {
-    const csv = 'judul,pengarang,penerbit,tahun,isbn,sub-disiplin,stok,lokasi-rak\r\n"Biologi Laut","Nama Pengarang","Nama Penerbit",2022,9780000000000,"Ekologi Laut",5,"A-01"\r\n';
+    const csv = 'judul,pengarang,penerbit,tahun,isbn,sub-disiplin,stok,lokasi-rak,deskripsi,kata-kunci,jumlah-halaman,edisi,url-sampul\r\n"Biologi Laut","Nama Pengarang","Nama Penerbit",2022,9780000000000,"Ekologi Laut",5,"A-01","Pengantar ekologi laut","ekologi laut; perikanan",250,"Edisi kedua",https://contoh.ac.id/sampul.jpg\r\n';
     const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
