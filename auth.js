@@ -1,59 +1,51 @@
-/* Autentikasi Supabase untuk Perpustakaan FPIK.
-   Peran disimpan di tabel public.profiles dan dibatasi lagi dengan RLS di database. */
+/* Autentikasi dua akses: OPAC publik dan area petugas. */
 (() => {
   'use strict';
   const config = window.FPIK_SUPABASE_CONFIG || {};
-  const ready = config.url && config.anonKey &&
-    !config.url.includes('PROJECT-REF') && !config.anonKey.includes('ISI_DENGAN');
-
-  const loginScreen = document.getElementById('login-screen');
-  const appShell = document.getElementById('app-shell');
+  const ready = Boolean(config.url && config.anonKey && window.supabase);
+  const modal = document.getElementById('login-screen');
   const form = document.getElementById('login-form');
   const errorBox = document.getElementById('login-error');
   const submit = document.getElementById('login-submit');
-  const logout = document.getElementById('logout-button');
+  const loginButton = document.getElementById('login-button');
+  const closeButton = document.getElementById('close-login');
+  const logoutButton = document.getElementById('logout-button');
+  const staffPages = ['dashboard', 'books', 'circulation', 'import'];
 
   function showError(message) {
     errorBox.textContent = message;
     errorBox.classList.remove('hidden');
   }
+  function openLogin() {
+    errorBox.classList.add('hidden');
+    modal.classList.remove('hidden');
+    document.getElementById('login-email').focus();
+  }
+  function closeLogin() { modal.classList.add('hidden'); }
   function setBusy(busy) {
     submit.disabled = busy;
     submit.innerHTML = busy ? 'Memeriksa akun...' : '<i class="fa-solid fa-right-to-bracket mr-2"></i>Masuk';
   }
-  function setVisible(signedIn) {
-    loginScreen.classList.toggle('hidden', signedIn);
-    appShell.classList.toggle('hidden', !signedIn);
-  }
-  function applyRole(role, email) {
-    const normalized = ['administrator', 'petugas', 'anggota'].includes(role) ? role : 'anggota';
-    document.getElementById('signed-in-user').textContent = `${email} • ${normalized}`;
-    const allowed = {
-      administrator: ['opac', 'dashboard', 'books', 'circulation', 'import'],
-      petugas: ['opac', 'dashboard', 'books', 'circulation', 'import'],
-      anggota: ['opac']
-    }[normalized];
-
-    document.querySelectorAll('[data-page]').forEach(button => {
-      const page = button.dataset.page;
-      button.classList.toggle('hidden', !allowed.includes(page));
+  function applyAccess(profile, email) {
+    const role = profile?.role || 'public';
+    const staff = ['administrator', 'petugas'].includes(role);
+    document.getElementById('signed-in-user').textContent = staff
+      ? `${profile.full_name || email} • ${role}`
+      : role === 'anggota' ? `${profile.full_name || email} • anggota` : 'Pengunjung umum • Akses katalog publik';
+    loginButton.classList.toggle('hidden', Boolean(profile));
+    logoutButton.classList.toggle('hidden', !profile);
+    document.querySelectorAll('[data-staff-only]').forEach(button => {
+      button.classList.toggle('hidden', !staff);
     });
-    document.querySelectorAll('.page').forEach(section => {
-      const page = section.id.replace('page-', '');
-      section.classList.toggle('hidden', !allowed.includes(page));
-    });
-
-    // Anggota hanya boleh melihat OPAC; kontrol mutasi disembunyikan untuk anggota.
-    if (normalized === 'anggota') {
-      document.querySelectorAll('#page-books form, #page-circulation form, #page-import form').forEach(node => node.classList.add('hidden'));
-    }
-    window.FPIK_CURRENT_USER = { email, role: normalized };
+    window.FPIK_CURRENT_USER = profile ? { id: profile.id, email, role } : null;
+    if (!staff && window.FPIK_SHOW_PAGE) window.FPIK_SHOW_PAGE('opac');
   }
 
   async function start() {
-    if (!ready || !window.supabase) {
-      showError('Konfigurasi Supabase belum diisi. Administrator perlu menyalin config.js.example menjadi config.js dan memasukkan Project URL serta anon/public key.');
-      setVisible(false);
+    // Aplikasi tetap menampilkan OPAC walaupun Supabase/Auth sedang tidak tersedia.
+    if (!ready) {
+      applyAccess(null, null);
+      window.FPIK_AUTH_READY = Promise.resolve(false);
       return;
     }
     const client = window.supabase.createClient(config.url, config.anonKey);
@@ -61,56 +53,60 @@
 
     async function loadProfile(user) {
       const { data, error } = await client.from('profiles')
-        .select('full_name, role, is_active')
-        .eq('id', user.id).single();
+        .select('id, full_name, role, is_active').eq('id', user.id).maybeSingle();
       if (error || !data || !data.is_active) {
         await client.auth.signOut();
-        setVisible(false);
+        applyAccess(null, null);
         showError('Profil akun tidak ditemukan atau akun dinonaktifkan. Hubungi administrator perpustakaan.');
+        openLogin();
         return;
       }
-      errorBox.classList.add('hidden');
-      applyRole(data.role, data.full_name || user.email);
-      setVisible(true);
-      if (data.role === 'anggota') {
-        document.querySelector('[data-page="opac"]')?.click();
+      if (!['administrator', 'petugas', 'anggota'].includes(data.role)) {
+        await client.auth.signOut();
+        applyAccess(null, null);
+        showError('Peran akun tidak dikenali. Hubungi administrator perpustakaan.');
+        openLogin();
+        return;
       }
+      applyAccess(data, user.email);
+      closeLogin();
+      if (data.role === 'anggota' && window.FPIK_SHOW_PAGE) window.FPIK_SHOW_PAGE('opac');
     }
 
+    loginButton.addEventListener('click', openLogin);
+    closeButton.addEventListener('click', closeLogin);
+    modal.addEventListener('click', event => { if (event.target === modal) closeLogin(); });
     form.addEventListener('submit', async event => {
-      event.preventDefault();
-      errorBox.classList.add('hidden');
-      setBusy(true);
+      event.preventDefault(); errorBox.classList.add('hidden'); setBusy(true);
       const email = document.getElementById('login-email').value.trim();
       const password = document.getElementById('login-password').value;
       const { data, error } = await client.auth.signInWithPassword({ email, password });
       setBusy(false);
-      if (error) {
-        showError('Login gagal. Periksa email dan password, atau hubungi administrator.');
-        return;
-      }
+      if (error) { showError('Login gagal. Periksa email dan password.'); return; }
       await loadProfile(data.user);
     });
-
-    logout.addEventListener('click', async () => {
+    logoutButton.addEventListener('click', async () => {
       await client.auth.signOut();
       window.FPIK_CURRENT_USER = null;
-      setVisible(false);
-      form.reset();
+      applyAccess(null, null);
+      form.reset(); closeLogin();
+      if (window.FPIK_SHOW_PAGE) window.FPIK_SHOW_PAGE('opac');
     });
 
     const { data: { session } } = await client.auth.getSession();
     if (session?.user) await loadProfile(session.user);
-    else setVisible(false);
-
-    client.auth.onAuthStateChange(async (event, sessionNow) => {
-      if (event === 'SIGNED_OUT') setVisible(false);
+    else applyAccess(null, null);
+    client.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT') {
+        applyAccess(null, null);
+        if (window.FPIK_SHOW_PAGE) window.FPIK_SHOW_PAGE('opac');
+      }
     });
+    window.FPIK_AUTH_READY = Promise.resolve(true);
   }
-
+  window.FPIK_OPEN_LOGIN = openLogin;
   start().catch(error => {
-    console.error(error);
-    setVisible(false);
-    showError('Tidak dapat menghubungkan layanan login. Periksa koneksi internet dan konfigurasi Supabase.');
+    console.error(error); applyAccess(null, null);
+    window.FPIK_AUTH_READY = Promise.resolve(false);
   });
 })();
