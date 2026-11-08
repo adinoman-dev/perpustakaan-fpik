@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#075985" />
+  <meta name="description" content="Sistem Informasi Perpustakaan Fakultas Perikanan dan Ilmu Kelautan Universitas Khairun." />
+  <title>Perpustakaan FPIK | Universitas Khairun</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ocean: {
+              50: '#effaff', 100: '#dff5ff', 200: '#b8eaff',
+              300: '#7bd8ff', 400: '#35bdf5', 500: '#0b9bd8',
+              600: '#087bb5', 700: '#096292', 800: '#0d5278',
+              900: '#104565', 950: '#082d45'
+            }
+          },
+          boxShadow: {
+            soft: '0 10px 30px rgba(8, 71, 105, .08)'
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <style>
+    html { scroll-behavior: smooth; }
+    body { background: #f4f9fc; }
+    .nav-link { transition: .2s ease; }
+    .nav-link.active { background: rgba(255,255,255,.16); color: #fff; }
+    .page { display: none; }
+    .page.active { display: block; animation: appear .22s ease-out; }
+    @keyframes appear { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    .field { width: 100%; border: 1px solid #dbe5ec; border-radius: .75rem; padding: .7rem .85rem; background: white; outline: none; }
+    .field:focus { border-color: #0b9bd8; box-shadow: 0 0 0 3px rgba(11,155,216,.12); }
+    .btn-primary { background: #087bb5; color: white; border-radius: .75rem; padding: .7rem 1rem; font-weight: 600; transition: .2s; }
+    .btn-primary:hover { background: #075f8d; }
+    .btn-muted { background: #eaf3f8; color: #15516f; border-radius: .7rem; padding: .6rem .85rem; font-weight: 600; }
+    .table-wrap { overflow-x: auto; }
+    th { white-space: nowrap; }
+    .toast { animation: appear .2s ease-out; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-800">
+  <section id="login-screen" class="min-h-screen flex items-center justify-center bg-gradient-to-br from-ocean-950 via-ocean-800 to-cyan-700 px-4 py-10">
+    <div class="w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl sm:p-9">
+      <div class="mb-6 text-center">
+        <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-ocean-100 text-3xl text-ocean-800"><i class="fa-solid fa-book-open-reader"></i></div>
+        <p class="text-xs font-bold uppercase tracking-[.18em] text-ocean-700">Universitas Khairun</p>
+        <h1 class="mt-1 text-2xl font-bold text-slate-900">Perpustakaan FPIK</h1>
+        <p class="mt-2 text-sm text-slate-500">Silakan masuk menggunakan akun perpustakaan Anda.</p>
+      </div>
+      <form id="login-form" class="space-y-4">
+        <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Email</span><input id="login-email" class="field" type="email" autocomplete="username" required placeholder="nama@contoh.ac.id"></label>
+        <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Password</span><input id="login-password" class="field" type="password" autocomplete="current-password" required placeholder="Masukkan password"></label>
+        <button id="login-submit" class="btn-primary w-full" type="submit"><i class="fa-solid fa-right-to-bracket mr-2"></i>Masuk</button>
+        <p id="login-error" class="hidden rounded-lg bg-red-50 p-3 text-sm text-red-700" role="alert"></p>
+      </form>
+      <p class="mt-5 text-center text-xs leading-5 text-slate-400">Akses hanya untuk akun yang telah didaftarkan oleh administrator perpustakaan.</p>
+    </div>
+  </section>
+  <div id="app-shell" class="hidden">
+
+  <header class="bg-gradient-to-r from-ocean-950 via-ocean-800 to-ocean-600 text-white shadow-lg">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6">
+      <div class="flex items-center justify-between gap-4 py-5">
+        <a href="#opac" class="flex min-w-0 items-center gap-3" aria-label="Beranda katalog">
+          <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-2xl">
+            <i class="fa-solid fa-book-open-reader"></i>
+          </div>
+          <div class="min-w-0">
+            <p class="text-xs font-semibold uppercase tracking-[.18em] text-ocean-100">Universitas Khairun</p>
+            <h1 class="truncate text-lg font-bold sm:text-xl">Perpustakaan FPIK</h1>
+            <p class="hidden text-xs text-ocean-100 sm:block">Fakultas Perikanan dan Ilmu Kelautan</p>
+          </div>
+        </a>
+        <div class="hidden items-center gap-2 text-right text-xs text-ocean-100 md:flex">
+          <i class="fa-solid fa-water text-lg"></i>
+          <span>Literasi • Perikanan • Kelautan</span>
+        </div>
+        <button id="mobile-menu-button" class="rounded-lg p-2 hover:bg-white/10 md:hidden" aria-label="Buka menu">
+          <i class="fa-solid fa-bars text-xl"></i>
+        </button>
+      </div>
+      <div class="flex items-center justify-between gap-3 pb-3 text-xs text-ocean-100"><span id="signed-in-user">Belum masuk</span><button id="logout-button" class="rounded-lg border border-white/30 px-3 py-1.5 hover:bg-white/10"><i class="fa-solid fa-right-from-bracket mr-1"></i>Keluar</button></div>
+      <nav id="main-nav" class="hidden flex-col gap-1 pb-4 md:flex md:flex-row md:flex-wrap">
+        <button class="nav-link active rounded-lg px-4 py-2 text-left text-sm font-semibold hover:bg-white/10" data-page="opac"><i class="fa-solid fa-magnifying-glass mr-2"></i>Katalog OPAC</button>
+        <button class="nav-link rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white" data-page="dashboard"><i class="fa-solid fa-chart-line mr-2"></i>Dashboard Admin</button>
+        <button class="nav-link rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white" data-page="books"><i class="fa-solid fa-book mr-2"></i>Data Buku</button>
+        <button class="nav-link rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white" data-page="circulation"><i class="fa-solid fa-arrows-rotate mr-2"></i>Transaksi Sirkulasi</button>
+        <button class="nav-link rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white" data-page="import"><i class="fa-solid fa-file-csv mr-2"></i>Import Data CSV</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+    <section id="page-opac" class="page active">
+      <div class="mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-ocean-900 via-ocean-700 to-cyan-600 p-6 text-white shadow-soft sm:p-9">
+        <div class="max-w-3xl">
+          <span class="mb-3 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold"><i class="fa-solid fa-compass"></i> OPAC • Online Public Access Catalog</span>
+          <h2 class="text-2xl font-bold leading-tight sm:text-4xl">Temukan referensi perikanan dan kelautan.</h2>
+          <p class="mt-3 max-w-2xl text-sm leading-6 text-ocean-50 sm:text-base">Jelajahi koleksi Perpustakaan Fakultas Perikanan dan Ilmu Kelautan Universitas Khairun melalui katalog digital.</p>
+          <div class="mt-6 flex max-w-2xl flex-col gap-2 rounded-2xl bg-white p-2 shadow-lg sm:flex-row">
+            <div class="flex flex-1 items-center gap-3 px-3 text-slate-500"><i class="fa-solid fa-magnifying-glass"></i><input id="catalog-search" class="w-full py-2 text-sm text-slate-800 outline-none" placeholder="Cari judul, pengarang, ISBN, atau sub-disiplin..." /></div>
+            <button id="clear-search" class="btn-primary"><i class="fa-solid fa-xmark mr-2"></i>Reset</button>
+          </div>
+        </div>
+      </div>
+      <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div><h3 class="text-xl font-bold text-slate-900">Koleksi buku</h3><p class="mt-1 text-sm text-slate-500">Daftar koleksi yang tersedia di perpustakaan.</p></div>
+        <span id="catalog-count" class="rounded-full bg-ocean-100 px-3 py-1.5 text-sm font-semibold text-ocean-800">0 judul</span>
+      </div>
+      <div id="catalog-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"></div>
+    </section>
+
+    <section id="page-dashboard" class="page">
+      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">RINGKASAN PERPUSTAKAAN</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Dashboard Admin</h2><p class="mt-2 text-sm text-slate-500">Pantau koleksi, sirkulasi, dan denda dari penyimpanan perangkat ini.</p></div>
+      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Total Judul Buku</span><span class="rounded-xl bg-ocean-100 p-3 text-ocean-700"><i class="fa-solid fa-book"></i></span></div><p id="stat-titles" class="mt-4 text-3xl font-bold">0</p><p class="mt-1 text-xs text-slate-400">Judul unik dalam katalog</p></div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Total Eksemplar</span><span class="rounded-xl bg-cyan-100 p-3 text-cyan-700"><i class="fa-solid fa-layer-group"></i></span></div><p id="stat-copies" class="mt-4 text-3xl font-bold">0</p><p class="mt-1 text-xs text-slate-400">Jumlah stok seluruh buku</p></div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Peminjaman Aktif</span><span class="rounded-xl bg-amber-100 p-3 text-amber-700"><i class="fa-solid fa-book-open"></i></span></div><p id="stat-loans" class="mt-4 text-3xl font-bold">0</p><p class="mt-1 text-xs text-slate-400">Belum dikembalikan</p></div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Total Denda Terkumpul</span><span class="rounded-xl bg-emerald-100 p-3 text-emerald-700"><i class="fa-solid fa-wallet"></i></span></div><p id="stat-fines" class="mt-4 text-2xl font-bold">Rp0</p><p class="mt-1 text-xs text-slate-400">Denda yang dicatat saat pengembalian</p></div>
+      </div>
+      <div class="mt-7 rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-2"><div><h3 class="font-bold text-slate-900">Peminjaman jatuh tempo terdekat</h3><p class="text-xs text-slate-500">Peminjaman aktif, diurutkan berdasarkan tanggal jatuh tempo.</p></div><span class="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Perlu dipantau</span></div>
+        <div class="table-wrap"><table class="w-full min-w-[650px] text-left text-sm"><thead class="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-3">Peminjam</th><th class="p-3">Buku</th><th class="p-3">Tanggal Pinjam</th><th class="p-3">Jatuh Tempo</th><th class="p-3">Status</th></tr></thead><tbody id="due-table"></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="page-books" class="page">
+      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">MANAJEMEN KOLEKSI</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Kelola Data Buku</h2><p class="mt-2 text-sm text-slate-500">Tambah, ubah, dan hapus data koleksi perpustakaan.</p></div>
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+        <div class="h-fit rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+          <div class="mb-5 flex items-center justify-between"><h3 id="book-form-title" class="font-bold text-slate-900">Tambah Buku</h3><span class="rounded-lg bg-ocean-50 px-2 py-1 text-xs font-semibold text-ocean-700">Form koleksi</span></div>
+          <form id="book-form" class="space-y-3">
+            <input type="hidden" id="book-id" />
+            <label class="block text-sm font-medium">Judul Buku <span class="text-red-500">*</span><input id="book-title" class="field mt-1" required maxlength="250" /></label>
+            <label class="block text-sm font-medium">Pengarang<input id="book-author" class="field mt-1" maxlength="200" /></label>
+            <label class="block text-sm font-medium">Penerbit<input id="book-publisher" class="field mt-1" maxlength="200" /></label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm font-medium">Tahun<input id="book-year" class="field mt-1" type="number" min="1000" max="2100" /></label>
+              <label class="block text-sm font-medium">ISBN<input id="book-isbn" class="field mt-1" maxlength="40" /></label>
+            </div>
+            <label class="block text-sm font-medium">Sub-Disiplin Ilmu<input id="book-discipline" class="field mt-1" placeholder="Contoh: Budidaya Perairan" maxlength="150" /></label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm font-medium">Stok (eksemplar)<input id="book-stock" class="field mt-1" type="number" min="0" step="1" value="1" required /></label>
+              <label class="block text-sm font-medium">Lokasi Rak<input id="book-shelf" class="field mt-1" placeholder="Contoh: A-01" maxlength="80" /></label>
+            </div>
+            <div class="flex flex-wrap gap-2 pt-2"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk mr-2"></i><span id="book-submit-label">Simpan Buku</span></button><button class="btn-muted" id="book-cancel" type="button">Batal</button></div>
+          </form>
+        </div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 class="font-bold text-slate-900">Daftar Koleksi</h3><p class="text-xs text-slate-500">Kelola data buku yang tersimpan.</p></div><input id="book-table-search" class="field max-w-xs text-sm" placeholder="Cari buku..." /></div>
+          <div class="table-wrap"><table class="w-full min-w-[700px] text-left text-sm"><thead class="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-3">Judul / ISBN</th><th class="p-3">Pengarang</th><th class="p-3">Tahun</th><th class="p-3">Stok</th><th class="p-3">Aksi</th></tr></thead><tbody id="books-table"></tbody></table></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="page-circulation" class="page">
+      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">LAYANAN SIRKULASI</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Transaksi Peminjaman & Pengembalian</h2><p class="mt-2 text-sm text-slate-500">Masa pinjam 7 hari; denda keterlambatan Rp1.000 per hari.</p></div>
+      <div class="grid gap-6 lg:grid-cols-2">
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+          <div class="mb-5 flex items-center gap-3"><span class="rounded-xl bg-ocean-100 p-3 text-ocean-700"><i class="fa-solid fa-arrow-right-from-bracket"></i></span><div><h3 class="font-bold">Form Peminjaman</h3><p class="text-xs text-slate-500">Catat mahasiswa/dosen yang meminjam buku.</p></div></div>
+          <form id="loan-form" class="space-y-3">
+            <label class="block text-sm font-medium">Nama Peminjam <span class="text-red-500">*</span><input id="loan-name" class="field mt-1" required maxlength="150" /></label>
+            <label class="block text-sm font-medium">NIM / NIP / Identitas<input id="loan-identity" class="field mt-1" maxlength="60" /></label>
+            <label class="block text-sm font-medium">Pilih Buku <span class="text-red-500">*</span><select id="loan-book" class="field mt-1" required><option value="">Pilih buku tersedia</option></select></label>
+            <div class="rounded-xl bg-ocean-50 p-3 text-sm text-ocean-900"><i class="fa-regular fa-calendar mr-2"></i>Jatuh tempo otomatis: 7 hari setelah tanggal peminjaman.</div>
+            <button class="btn-primary w-full sm:w-auto" type="submit"><i class="fa-solid fa-check mr-2"></i>Simpan Peminjaman</button>
+          </form>
+        </div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+          <div class="mb-5 flex items-center gap-3"><span class="rounded-xl bg-emerald-100 p-3 text-emerald-700"><i class="fa-solid fa-arrow-right-to-bracket"></i></span><div><h3 class="font-bold">Form Pengembalian</h3><p class="text-xs text-slate-500">Pilih transaksi aktif untuk memproses pengembalian.</p></div></div>
+          <form id="return-form" class="space-y-3">
+            <label class="block text-sm font-medium">Peminjaman Aktif <span class="text-red-500">*</span><select id="return-loan" class="field mt-1" required><option value="">Pilih transaksi aktif</option></select></label>
+            <div id="return-preview" class="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Pilih transaksi untuk melihat estimasi keterlambatan dan denda.</div>
+            <button class="btn-primary w-full sm:w-auto" type="submit"><i class="fa-solid fa-rotate-left mr-2"></i>Proses Pengembalian</button>
+          </form>
+        </div>
+      </div>
+      <div class="mt-7 rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+        <div class="mb-4"><h3 class="font-bold text-slate-900">Riwayat Transaksi</h3><p class="text-xs text-slate-500">Seluruh peminjaman dan pengembalian yang tercatat pada perangkat ini.</p></div>
+        <div class="table-wrap"><table class="w-full min-w-[850px] text-left text-sm"><thead class="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-3">Peminjam</th><th class="p-3">Buku</th><th class="p-3">Tanggal Pinjam</th><th class="p-3">Jatuh Tempo</th><th class="p-3">Dikembalikan</th><th class="p-3">Denda</th><th class="p-3">Status</th></tr></thead><tbody id="history-table"></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="page-import" class="page">
+      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">MANAJEMEN DATA MASSAL</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Import Data Buku dari CSV</h2><p class="mt-2 text-sm text-slate-500">Masukkan koleksi dari Excel melalui berkas CSV.</p></div>
+      <div class="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-7">
+          <div class="mb-5 flex items-center gap-3"><span class="rounded-xl bg-ocean-100 p-3 text-ocean-700"><i class="fa-solid fa-file-csv text-xl"></i></span><div><h3 class="font-bold">Unggah berkas CSV</h3><p class="text-xs text-slate-500">Format .csv dengan baris pertama sebagai header.</p></div></div>
+          <form id="import-form" class="space-y-4">
+            <input id="csv-file" type="file" accept=".csv,text/csv" class="field file:mr-3 file:rounded-lg file:border-0 file:bg-ocean-50 file:px-3 file:py-2 file:font-semibold file:text-ocean-800" required />
+            <label class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><input id="import-replace" type="checkbox" class="mt-1" /><span><strong>Ganti seluruh data buku yang ada</strong><br />Jika tidak dicentang, data dari CSV akan ditambahkan. ISBN yang sama akan memperbarui data buku tersebut.</span></label>
+            <button class="btn-primary" type="submit"><i class="fa-solid fa-cloud-arrow-up mr-2"></i>Import CSV</button>
+          </form>
+          <div id="import-result" class="mt-4 hidden rounded-xl p-4 text-sm"></div>
+        </div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-7">
+          <h3 class="font-bold">Format kolom CSV</h3>
+          <p class="mt-2 text-sm leading-6 text-slate-600">Gunakan nama header berikut. Header tidak peka huruf besar/kecil; beberapa variasi nama Indonesia/Inggris juga dikenali.</p>
+          <div class="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs leading-6 text-emerald-300"><code>judul,pengarang,penerbit,tahun,isbn,sub-disiplin,stok,lokasi-rak<br>"Biologi Laut","A. Penulis","Penerbit X",2022,9780000000000,"Ekologi Laut",5,"A-01"</code></div>
+          <ul class="mt-4 space-y-2 text-sm text-slate-600">
+            <li><i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>Ekspor lembar Excel menjadi CSV UTF-8 (Comma delimited).</li>
+            <li><i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>Kolom judul wajib diisi; stok kosong akan dianggap 0.</li>
+            <li><i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>Gunakan tanda kutip untuk teks yang mengandung koma.</li>
+            <li><i class="fa-solid fa-circle-info mr-2 text-ocean-600"></i>Data disimpan di localStorage browser, bukan server bersama.</li>
+          </ul>
+          <button id="download-template" class="btn-muted mt-5"><i class="fa-solid fa-download mr-2"></i>Unduh Template CSV</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="mt-10 rounded-2xl border border-ocean-100 bg-white p-4 text-xs leading-5 text-slate-500 shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-4">
+      <p><i class="fa-solid fa-circle-info mr-2 text-ocean-600"></i>Aplikasi demo berbasis penyimpanan lokal browser. Gunakan perangkat dan browser yang sama untuk mengakses data.</p>
+      <p class="mt-2 shrink-0 sm:mt-0">© <span id="current-year"></span> Perpustakaan FPIK Universitas Khairun</p>
+    </div>
+  </main>
+
+  <div id="toast-region" class="fixed bottom-4 right-4 z-50 flex max-w-sm flex-col gap-2" aria-live="polite"></div>
+
+  <footer class="mt-8 bg-ocean-950 py-5 text-center text-xs text-ocean-100">
+    Dikembangkan sebagai aplikasi Single Page Application • FPIK Universitas Khairun
+  </footer>
+  </div>
+  <script src="./config.js"></script>
+  <script src="./auth.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

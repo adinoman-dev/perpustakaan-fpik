@@ -1,0 +1,502 @@
+/* Sistem Informasi Perpustakaan FPIK Universitas Khairun
+ * Vanilla JavaScript + localStorage. Tidak memerlukan backend.
+ */
+(() => {
+  'use strict';
+
+  const STORAGE = {
+    books: 'fpik_library_books_v1',
+    loans: 'fpik_library_loans_v1'
+  };
+  const LOAN_DAYS = 7;
+  const FINE_PER_DAY = 1000;
+
+  let books = readStorage(STORAGE.books, []);
+  let loans = readStorage(STORAGE.loans, []);
+
+  function readStorage(key, fallback) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key));
+      return Array.isArray(value) ? value : fallback;
+    } catch (error) {
+      console.warn(`Tidak dapat membaca ${key}:`, error);
+      return fallback;
+    }
+  }
+
+  function saveStorage() {
+    try {
+      localStorage.setItem(STORAGE.books, JSON.stringify(books));
+      localStorage.setItem(STORAGE.loans, JSON.stringify(loans));
+      return true;
+    } catch (error) {
+      console.error(error);
+      showToast('Penyimpanan gagal. Periksa ruang penyimpanan browser.', 'error');
+      return false;
+    }
+  }
+
+  function uid() {
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+  }
+
+  function el(id) { return document.getElementById(id); }
+
+  function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[char]);
+  }
+
+  function localDate(date = new Date()) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function addDays(dateString, days) {
+    const [year, month, day] = dateString.split('-').map(Number);
+    const date = new Date(year, month - 1, day);
+    date.setDate(date.getDate() + days);
+    return localDate(date);
+  }
+
+  function parseDate(dateString) {
+    const [year, month, day] = String(dateString).split('-').map(Number);
+    return new Date(year, month - 1, day);
+  }
+
+  function daysBetween(fromDate, toDate) {
+    return Math.round((parseDate(toDate) - parseDate(fromDate)) / 86400000);
+  }
+
+  function formatDate(dateString) {
+    if (!dateString) return '-';
+    return parseDate(dateString).toLocaleDateString('id-ID', {
+      day: '2-digit', month: 'short', year: 'numeric'
+    });
+  }
+
+  function rupiah(value) {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency', currency: 'IDR', maximumFractionDigits: 0
+    }).format(Number(value) || 0);
+  }
+
+  function showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    const color = type === 'error'
+      ? 'border-red-200 bg-red-50 text-red-800'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-800';
+    toast.className = `toast rounded-xl border ${color} px-4 py-3 text-sm shadow-lg`;
+    toast.textContent = message;
+    el('toast-region').appendChild(toast);
+    setTimeout(() => toast.remove(), 3600);
+  }
+
+  function showPage(page) {
+    document.querySelectorAll('.page').forEach(section => {
+      section.classList.toggle('active', section.id === `page-${page}`);
+    });
+    document.querySelectorAll('.nav-link').forEach(button => {
+      const active = button.dataset.page === page;
+      button.classList.toggle('active', active);
+      button.classList.toggle('text-ocean-100', !active);
+    });
+    el('main-nav').classList.remove('flex');
+    el('main-nav').classList.add('hidden');
+    renderAll();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function bookAvailable(book) {
+    const borrowed = loans.filter(loan => loan.bookId === book.id && !loan.returnDate).length;
+    return Math.max(0, Number(book.stock) - borrowed);
+  }
+
+  function renderCatalog() {
+    const query = el('catalog-search').value.trim().toLowerCase();
+    const filtered = books.filter(book => [
+      book.title, book.author, book.isbn, book.discipline, book.publisher
+    ].join(' ').toLowerCase().includes(query));
+
+    el('catalog-count').textContent = `${filtered.length} judul`;
+    if (!filtered.length) {
+      el('catalog-grid').innerHTML = `<div class="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
+        <i class="fa-solid fa-book-open mb-3 text-3xl text-slate-300"></i>
+        <p class="font-semibold text-slate-700">${books.length ? 'Buku tidak ditemukan' : 'Belum ada koleksi buku'}</p>
+        <p class="mt-1 text-sm text-slate-500">${books.length ? 'Coba kata kunci yang berbeda.' : 'Petugas dapat menambahkan buku melalui menu Data Buku atau Import CSV.'}</p>
+      </div>`;
+      return;
+    }
+
+    el('catalog-grid').innerHTML = filtered.map(book => {
+      const available = bookAvailable(book);
+      return `<article class="flex flex-col rounded-2xl border border-slate-100 bg-white p-5 shadow-soft transition hover:-translate-y-1 hover:shadow-lg">
+        <div class="mb-4 flex items-start justify-between gap-3">
+          <span class="rounded-xl bg-ocean-50 p-3 text-xl text-ocean-700"><i class="fa-solid fa-book"></i></span>
+          <span class="rounded-full px-3 py-1 text-xs font-semibold ${available > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">${available} tersedia</span>
+        </div>
+        <h3 class="text-base font-bold leading-snug text-slate-900">${escapeHtml(book.title)}</h3>
+        <p class="mt-2 text-sm text-slate-600"><i class="fa-regular fa-user mr-2 text-ocean-600"></i>${escapeHtml(book.author || 'Pengarang tidak dicantumkan')}</p>
+        <div class="mt-4 space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
+          <p><i class="fa-regular fa-building mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.publisher || '-')} • ${escapeHtml(book.year || '-')}</p>
+          <p><i class="fa-solid fa-fish-fins mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.discipline || 'Sub-disiplin belum diisi')}</p>
+          <p><i class="fa-solid fa-barcode mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.isbn || 'ISBN tidak tersedia')}</p>
+          <p><i class="fa-solid fa-location-dot mr-2 w-3 text-ocean-600"></i>Rak: ${escapeHtml(book.shelf || '-')}</p>
+        </div>
+      </article>`;
+    }).join('');
+  }
+
+  function renderDashboard() {
+    const activeLoans = loans.filter(loan => !loan.returnDate);
+    el('stat-titles').textContent = books.length;
+    el('stat-copies').textContent = books.reduce((sum, book) => sum + Number(book.stock || 0), 0);
+    el('stat-loans').textContent = activeLoans.length;
+    el('stat-fines').textContent = rupiah(loans.reduce((sum, loan) => sum + Number(loan.fine || 0), 0));
+
+    const sorted = [...activeLoans].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    el('due-table').innerHTML = sorted.length ? sorted.map(loan => {
+      const overdue = daysBetween(loan.dueDate, localDate()) > 0;
+      return `<tr class="border-b last:border-0">
+        <td class="p-3 font-medium">${escapeHtml(loan.name)}<div class="text-xs text-slate-400">${escapeHtml(loan.identity || '-')}</div></td>
+        <td class="p-3">${escapeHtml(loan.bookTitle)}</td>
+        <td class="p-3">${formatDate(loan.loanDate)}</td>
+        <td class="p-3">${formatDate(loan.dueDate)}</td>
+        <td class="p-3"><span class="rounded-full px-2.5 py-1 text-xs font-semibold ${overdue ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}">${overdue ? 'Terlambat' : 'Aktif'}</span></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="5" class="p-8 text-center text-slate-400">Belum ada peminjaman aktif.</td></tr>`;
+  }
+
+  function resetBookForm() {
+    el('book-form').reset();
+    el('book-id').value = '';
+    el('book-stock').value = 1;
+    el('book-form-title').textContent = 'Tambah Buku';
+    el('book-submit-label').textContent = 'Simpan Buku';
+  }
+
+  function renderBooksTable() {
+    const query = el('book-table-search').value.trim().toLowerCase();
+    const filtered = books.filter(book => [book.title, book.author, book.isbn].join(' ').toLowerCase().includes(query));
+    el('books-table').innerHTML = filtered.length ? filtered.map(book => `<tr class="border-b last:border-0">
+      <td class="p-3"><div class="max-w-xs font-semibold text-slate-800">${escapeHtml(book.title)}</div><div class="text-xs text-slate-400">${escapeHtml(book.isbn || '-')}</div></td>
+      <td class="p-3">${escapeHtml(book.author || '-')}</td>
+      <td class="p-3">${escapeHtml(book.year || '-')}</td>
+      <td class="p-3">${bookAvailable(book)} / ${Number(book.stock)}</td>
+      <td class="p-3"><div class="flex gap-2"><button class="rounded-lg bg-ocean-50 px-3 py-2 text-xs font-semibold text-ocean-800 hover:bg-ocean-100" data-edit-book="${escapeHtml(book.id)}"><i class="fa-solid fa-pen"></i></button><button class="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100" data-delete-book="${escapeHtml(book.id)}"><i class="fa-solid fa-trash"></i></button></div></td>
+    </tr>`).join('') : `<tr><td colspan="5" class="p-8 text-center text-slate-400">Data buku belum tersedia.</td></tr>`;
+  }
+
+  function renderLoanOptions() {
+    const availableBooks = books.filter(book => bookAvailable(book) > 0);
+    el('loan-book').innerHTML = `<option value="">Pilih buku tersedia</option>` + availableBooks.map(book =>
+      `<option value="${escapeHtml(book.id)}">${escapeHtml(book.title)} — tersedia ${bookAvailable(book)}</option>`
+    ).join('');
+
+    const active = loans.filter(loan => !loan.returnDate);
+    el('return-loan').innerHTML = `<option value="">Pilih transaksi aktif</option>` + active.map(loan =>
+      `<option value="${escapeHtml(loan.id)}">${escapeHtml(loan.name)} — ${escapeHtml(loan.bookTitle)} (jatuh tempo ${formatDate(loan.dueDate)})</option>`
+    ).join('');
+    renderReturnPreview();
+  }
+
+  function renderReturnPreview() {
+    const loan = loans.find(item => item.id === el('return-loan').value && !item.returnDate);
+    if (!loan) {
+      el('return-preview').textContent = 'Pilih transaksi untuk melihat estimasi keterlambatan dan denda.';
+      return;
+    }
+    const today = localDate();
+    const lateDays = Math.max(0, daysBetween(loan.dueDate, today));
+    const fine = lateDays * FINE_PER_DAY;
+    el('return-preview').innerHTML = `<div class="flex justify-between gap-3"><span>Peminjam</span><strong class="text-slate-800">${escapeHtml(loan.name)}</strong></div>
+      <div class="mt-2 flex justify-between gap-3"><span>Jatuh tempo</span><strong class="text-slate-800">${formatDate(loan.dueDate)}</strong></div>
+      <div class="mt-2 flex justify-between gap-3"><span>Terlambat</span><strong class="${lateDays ? 'text-red-700' : 'text-emerald-700'}">${lateDays} hari</strong></div>
+      <div class="mt-3 flex justify-between border-t border-slate-200 pt-3"><span class="font-semibold">Estimasi denda</span><strong class="text-lg text-ocean-800">${rupiah(fine)}</strong></div>`;
+  }
+
+  function renderHistory() {
+    const sorted = [...loans].sort((a, b) => b.loanDate.localeCompare(a.loanDate));
+    el('history-table').innerHTML = sorted.length ? sorted.map(loan => `<tr class="border-b last:border-0">
+      <td class="p-3 font-medium">${escapeHtml(loan.name)}<div class="text-xs text-slate-400">${escapeHtml(loan.identity || '-')}</div></td>
+      <td class="p-3">${escapeHtml(loan.bookTitle)}</td>
+      <td class="p-3">${formatDate(loan.loanDate)}</td>
+      <td class="p-3">${formatDate(loan.dueDate)}</td>
+      <td class="p-3">${formatDate(loan.returnDate)}</td>
+      <td class="p-3">${rupiah(loan.fine || 0)}</td>
+      <td class="p-3"><span class="rounded-full px-2.5 py-1 text-xs font-semibold ${loan.returnDate ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}">${loan.returnDate ? 'Dikembalikan' : 'Dipinjam'}</span></td>
+    </tr>`).join('') : `<tr><td colspan="7" class="p-8 text-center text-slate-400">Belum ada riwayat transaksi.</td></tr>`;
+  }
+
+  function renderAll() {
+    renderCatalog();
+    renderDashboard();
+    renderBooksTable();
+    renderLoanOptions();
+    renderHistory();
+  }
+
+  function editBook(id) {
+    const book = books.find(item => item.id === id);
+    if (!book) return;
+    el('book-id').value = book.id;
+    el('book-title').value = book.title;
+    el('book-author').value = book.author;
+    el('book-publisher').value = book.publisher;
+    el('book-year').value = book.year;
+    el('book-isbn').value = book.isbn;
+    el('book-discipline').value = book.discipline;
+    el('book-stock').value = book.stock;
+    el('book-shelf').value = book.shelf;
+    el('book-form-title').textContent = 'Edit Buku';
+    el('book-submit-label').textContent = 'Perbarui Buku';
+    el('book-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function deleteBook(id) {
+    const book = books.find(item => item.id === id);
+    if (!book) return;
+    if (loans.some(loan => loan.bookId === id && !loan.returnDate)) {
+      showToast('Buku masih memiliki peminjaman aktif dan tidak dapat dihapus.', 'error');
+      return;
+    }
+    if (!confirm(`Hapus buku "${book.title}" dari katalog?`)) return;
+    books = books.filter(item => item.id !== id);
+    saveStorage();
+    renderAll();
+    showToast('Data buku berhasil dihapus.');
+  }
+
+  function handleBookSubmit(event) {
+    event.preventDefault();
+    const id = el('book-id').value;
+    const title = el('book-title').value.trim();
+    const stock = Number(el('book-stock').value);
+    if (!title) return showToast('Judul buku wajib diisi.', 'error');
+    if (!Number.isInteger(stock) || stock < 0) return showToast('Stok harus berupa bilangan bulat minimal 0.', 'error');
+
+    const data = {
+      title,
+      author: el('book-author').value.trim(),
+      publisher: el('book-publisher').value.trim(),
+      year: el('book-year').value,
+      isbn: el('book-isbn').value.trim(),
+      discipline: el('book-discipline').value.trim(),
+      stock,
+      shelf: el('book-shelf').value.trim()
+    };
+
+    if (id) {
+      const index = books.findIndex(book => book.id === id);
+      if (index < 0) return showToast('Data buku tidak ditemukan.', 'error');
+      const borrowed = loans.filter(loan => loan.bookId === id && !loan.returnDate).length;
+      if (stock < borrowed) return showToast(`Stok tidak boleh kurang dari jumlah buku yang sedang dipinjam (${borrowed}).`, 'error');
+      books[index] = { ...books[index], ...data };
+      showToast('Data buku berhasil diperbarui.');
+    } else {
+      books.push({ id: uid(), ...data, createdAt: new Date().toISOString() });
+      showToast('Buku berhasil ditambahkan.');
+    }
+    saveStorage();
+    resetBookForm();
+    renderAll();
+  }
+
+  function handleLoanSubmit(event) {
+    event.preventDefault();
+    const book = books.find(item => item.id === el('loan-book').value);
+    const name = el('loan-name').value.trim();
+    if (!book || bookAvailable(book) < 1) return showToast('Buku tidak tersedia. Perbarui pilihan buku.', 'error');
+    if (!name) return showToast('Nama peminjam wajib diisi.', 'error');
+
+    const loanDate = localDate();
+    loans.push({
+      id: uid(), bookId: book.id, bookTitle: book.title,
+      name, identity: el('loan-identity').value.trim(),
+      loanDate, dueDate: addDays(loanDate, LOAN_DAYS),
+      returnDate: null, fine: 0
+    });
+    saveStorage();
+    el('loan-form').reset();
+    renderAll();
+    showToast(`Peminjaman tercatat. Jatuh tempo ${formatDate(addDays(loanDate, LOAN_DAYS))}.`);
+  }
+
+  function handleReturnSubmit(event) {
+    event.preventDefault();
+    const loan = loans.find(item => item.id === el('return-loan').value && !item.returnDate);
+    if (!loan) return showToast('Pilih transaksi peminjaman aktif.', 'error');
+
+    const today = localDate();
+    const lateDays = Math.max(0, daysBetween(loan.dueDate, today));
+    loan.returnDate = today;
+    loan.fine = lateDays * FINE_PER_DAY;
+    saveStorage();
+    renderAll();
+    showToast(`Pengembalian berhasil. Denda: ${rupiah(loan.fine)}.`);
+  }
+
+  // CSV parser yang mendukung tanda kutip, koma di dalam sel, dan baris baru dalam kutipan.
+  function parseCSV(text) {
+    const rows = [];
+    let row = [], cell = '', quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i], next = text[i + 1];
+      if (char === '"' && quoted && next === '"') { cell += '"'; i++; }
+      else if (char === '"') { quoted = !quoted; }
+      else if (char === ',' && !quoted) { row.push(cell); cell = ''; }
+      else if ((char === '\n' || char === '\r') && !quoted) {
+        if (char === '\r' && next === '\n') i++;
+        row.push(cell); cell = '';
+        if (row.some(value => value.trim() !== '')) rows.push(row);
+        row = [];
+      } else { cell += char; }
+    }
+    row.push(cell);
+    if (row.some(value => value.trim() !== '')) rows.push(row);
+    if (quoted) throw new Error('CSV memiliki tanda kutip yang tidak berpasangan.');
+    return rows;
+  }
+
+  function normalizeHeader(header) {
+    return String(header).replace(/^\uFEFF/, '').trim().toLowerCase()
+      .replace(/[_\s]+/g, '-');
+  }
+
+  function handleImport(event) {
+    event.preventDefault();
+    const file = el('csv-file').files[0];
+    if (!file) return showToast('Pilih file CSV terlebih dahulu.', 'error');
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const rows = parseCSV(String(reader.result || ''));
+        if (rows.length < 2) throw new Error('CSV tidak memiliki baris data.');
+        const headers = rows[0].map(normalizeHeader);
+        const aliases = {
+          title: ['judul', 'judul-buku', 'title', 'book-title', 'nama-buku'],
+          author: ['pengarang', 'penulis', 'author', 'writer'],
+          publisher: ['penerbit', 'publisher'],
+          year: ['tahun', 'tahun-terbit', 'year', 'publication-year'],
+          isbn: ['isbn', 'isbn-10', 'isbn-13'],
+          discipline: ['sub-disiplin', 'subdisiplin', 'disiplin', 'bidang-ilmu', 'discipline', 'subject'],
+          stock: ['stok', 'jumlah', 'eksemplar', 'stock', 'copies', 'quantity'],
+          shelf: ['lokasi-rak', 'rak', 'lokasi', 'shelf', 'location']
+        };
+        const indexFor = key => headers.findIndex(header => aliases[key].includes(header));
+        const titleIndex = indexFor('title');
+        if (titleIndex < 0) throw new Error('Kolom judul wajib ada. Gunakan header "judul" atau "title".');
+
+        const imported = [];
+        rows.slice(1).forEach((row, rowNumber) => {
+          const value = key => {
+            const index = indexFor(key);
+            return index >= 0 ? String(row[index] ?? '').trim() : '';
+          };
+          const title = String(row[titleIndex] ?? '').trim();
+          if (!title) return;
+          const stockRaw = value('stock');
+          const stock = stockRaw === '' ? 0 : Number(stockRaw);
+          if (!Number.isInteger(stock) || stock < 0) {
+            throw new Error(`Nilai stok tidak valid pada baris ${rowNumber + 2}.`);
+          }
+          imported.push({
+            title, author: value('author'), publisher: value('publisher'),
+            year: value('year'), isbn: value('isbn'), discipline: value('discipline'),
+            stock, shelf: value('shelf')
+          });
+        });
+        if (!imported.length) throw new Error('Tidak ditemukan baris buku dengan judul yang valid.');
+
+        const replace = el('import-replace').checked;
+        if (replace && loans.some(loan => !loan.returnDate)) {
+          throw new Error('Tidak dapat mengganti seluruh katalog karena masih ada peminjaman aktif.');
+        }
+        if (replace) books = [];
+
+        let added = 0, updated = 0;
+        imported.forEach(item => {
+          const existing = item.isbn
+            ? books.find(book => book.isbn && book.isbn.toLowerCase() === item.isbn.toLowerCase())
+            : null;
+          if (existing) {
+            const borrowed = loans.filter(loan => loan.bookId === existing.id && !loan.returnDate).length;
+            if (item.stock < borrowed) throw new Error(`Stok CSV untuk "${item.title}" lebih kecil dari jumlah yang sedang dipinjam.`);
+            Object.assign(existing, item);
+            updated++;
+          } else {
+            books.push({ id: uid(), ...item, createdAt: new Date().toISOString() });
+            added++;
+          }
+        });
+        saveStorage();
+        renderAll();
+        const result = el('import-result');
+        result.className = 'mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800';
+        result.textContent = `Import selesai: ${added} buku ditambahkan, ${updated} buku diperbarui.`;
+        result.classList.remove('hidden');
+        el('import-form').reset();
+        showToast('Import data CSV berhasil.');
+      } catch (error) {
+        const result = el('import-result');
+        result.className = 'mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-800';
+        result.textContent = `Import gagal: ${error.message}`;
+        result.classList.remove('hidden');
+        showToast(error.message, 'error');
+      }
+    };
+    reader.onerror = () => showToast('File tidak dapat dibaca.', 'error');
+    reader.readAsText(file, 'UTF-8');
+  }
+
+  function downloadTemplate() {
+    const csv = 'judul,pengarang,penerbit,tahun,isbn,sub-disiplin,stok,lokasi-rak\r\n"Biologi Laut","Nama Pengarang","Nama Penerbit",2022,9780000000000,"Ekologi Laut",5,"A-01"\r\n';
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'template-koleksi-perpustakaan.csv';
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function init() {
+    el('current-year').textContent = new Date().getFullYear();
+
+    document.querySelectorAll('.nav-link').forEach(button => {
+      button.addEventListener('click', () => showPage(button.dataset.page));
+    });
+    el('mobile-menu-button').addEventListener('click', () => {
+      const nav = el('main-nav');
+      nav.classList.toggle('hidden');
+      nav.classList.toggle('flex');
+    });
+
+    el('catalog-search').addEventListener('input', renderCatalog);
+    el('clear-search').addEventListener('click', () => {
+      el('catalog-search').value = '';
+      renderCatalog();
+    });
+    el('book-form').addEventListener('submit', handleBookSubmit);
+    el('book-cancel').addEventListener('click', resetBookForm);
+    el('book-table-search').addEventListener('input', renderBooksTable);
+    el('books-table').addEventListener('click', event => {
+      const edit = event.target.closest('[data-edit-book]');
+      const remove = event.target.closest('[data-delete-book]');
+      if (edit) editBook(edit.dataset.editBook);
+      if (remove) deleteBook(remove.dataset.deleteBook);
+    });
+    el('loan-form').addEventListener('submit', handleLoanSubmit);
+    el('return-form').addEventListener('submit', handleReturnSubmit);
+    el('return-loan').addEventListener('change', renderReturnPreview);
+    el('import-form').addEventListener('submit', handleImport);
+    el('download-template').addEventListener('click', downloadTemplate);
+
+    renderAll();
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();
