@@ -1,681 +1,244 @@
-/* Sistem Informasi Perpustakaan FPIK Universitas Khairun
- * Vanilla JavaScript + localStorage. Tidak memerlukan backend.
- */
-(() => {
-  'use strict';
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#075985" />
+  <meta name="description" content="Sistem Informasi Perpustakaan Fakultas Perikanan dan Ilmu Kelautan Universitas Khairun." />
+  <title>Perpustakaan FPIK | Universitas Khairun</title>
 
-  const STORAGE = {
-    books: 'fpik_library_books_v1',
-    loans: 'fpik_library_loans_v1'
-  };
-  const LOAN_DAYS = 7;
-  const FINE_PER_DAY = 1000;
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            ocean: {
+              50: '#effaff', 100: '#dff5ff', 200: '#b8eaff',
+              300: '#7bd8ff', 400: '#35bdf5', 500: '#0b9bd8',
+              600: '#087bb5', 700: '#096292', 800: '#0d5278',
+              900: '#104565', 950: '#082d45'
+            }
+          },
+          boxShadow: {
+            soft: '0 10px 30px rgba(8, 71, 105, .08)'
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+  <style>
+    html { scroll-behavior: smooth; }
+    body { background: #f4f9fc; }
+    .nav-link { transition: .2s ease; }
+    .nav-link.active { background: rgba(255,255,255,.16); color: #fff; }
+    .page { display: none; }
+    .page.active { display: block; animation: appear .22s ease-out; }
+    @keyframes appear { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+    .field { width: 100%; border: 1px solid #dbe5ec; border-radius: .75rem; padding: .7rem .85rem; background: white; outline: none; }
+    .field:focus { border-color: #0b9bd8; box-shadow: 0 0 0 3px rgba(11,155,216,.12); }
+    .btn-primary { background: #087bb5; color: white; border-radius: .75rem; padding: .7rem 1rem; font-weight: 600; transition: .2s; }
+    .btn-primary:hover { background: #075f8d; }
+    .btn-muted { background: #eaf3f8; color: #15516f; border-radius: .7rem; padding: .6rem .85rem; font-weight: 600; }
+    .table-wrap { overflow-x: auto; }
+    th { white-space: nowrap; }
+    .toast { animation: appear .2s ease-out; }
+  </style>
+</head>
+<body class="min-h-screen text-slate-800">
+  <section id="login-screen" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 px-4 py-10" aria-modal="true" role="dialog" aria-labelledby="login-title">
+    <div class="relative w-full max-w-md rounded-3xl bg-white p-7 shadow-2xl sm:p-9">
+      <button id="close-login" type="button" class="absolute right-5 top-5 rounded-lg px-3 py-1 text-slate-500 hover:bg-slate-100" aria-label="Tutup">✕</button>
+      <div class="mb-6 text-center">
+        <div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-ocean-100 text-3xl text-ocean-800"><i class="fa-solid fa-book-open-reader"></i></div>
+        <p class="text-xs font-bold uppercase tracking-[.18em] text-ocean-700">Universitas Khairun</p>
+        <h2 id="login-title" class="mt-1 text-2xl font-bold text-slate-900">Login Petugas</h2>
+        <p class="mt-2 text-sm text-slate-500">Masuk untuk mengelola koleksi dan layanan perpustakaan.</p>
+      </div>
+      <form id="login-form" class="space-y-4">
+        <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Email</span><input id="login-email" class="field" type="email" autocomplete="username" required placeholder="nama@contoh.ac.id"></label>
+        <label class="block"><span class="mb-1 block text-sm font-semibold text-slate-700">Password</span><input id="login-password" class="field" type="password" autocomplete="current-password" required placeholder="Masukkan password"></label>
+        <button id="login-submit" class="btn-primary w-full" type="submit"><i class="fa-solid fa-right-to-bracket mr-2"></i>Masuk</button>
+        <p id="login-error" class="hidden rounded-lg bg-red-50 p-3 text-sm text-red-700" role="alert"></p>
+      </form>
+      <p class="mt-5 text-center text-xs leading-5 text-slate-400">Akses administrasi hanya untuk akun yang didaftarkan oleh pengelola perpustakaan.</p>
+    </div>
+  </section>
+  <div id="app-shell">
 
-  let books = readStorage(STORAGE.books, []);
-  let booksFromServer = false;
-
-  function toUiBook(row) { return { id: row.id, title: row.title, author: row.author || '', publisher: row.publisher || '', year: row.publication_year || '', isbn: row.isbn || '', discipline: row.discipline || '', stock: Number(row.stock || 0), shelf: row.shelf || '', description: row.description || '', keywords: row.keywords || '', pages: row.pages || '', edition: row.edition || '', coverUrl: row.cover_url || '', createdAt: row.created_at }; }
-  function toDbBook(book) { return { title: book.title, author: book.author || null, publisher: book.publisher || null, publication_year: book.year ? Number(book.year) : null, isbn: book.isbn || null, discipline: book.discipline || null, stock: Number(book.stock || 0), shelf: book.shelf || null, description: book.description || null, keywords: book.keywords || null, pages: book.pages ? Number(book.pages) : null, edition: book.edition || null, cover_url: book.coverUrl || null }; }
-
-  async function loadBooksFromServer() {
-    const client = window.FPIK_SUPABASE;
-    if (!client) return;
-    booksFromServer = true;
-    const { data, error } = await client.from('books').select('*').order('title');
-    if (error) {
-      books = [];
-      renderAll();
-      console.error('Gagal memuat katalog Supabase:', error);
-      showToast('Katalog online belum dapat dibaca. Jalankan SQL kebijakan katalog publik pada panduan.', 'error');
-      return;
-    }
-    books = (data || []).map(toUiBook);
-    try { localStorage.setItem(STORAGE.books, JSON.stringify(books)); } catch (_) {}
-    renderAll();
-  }
-
-  async function saveBookToServer(book, existingId) {
-    const client = window.FPIK_SUPABASE;
-    if (!client) throw new Error('Koneksi database tidak tersedia.');
-    const payload = toDbBook(book);
-    if (existingId) payload.id = existingId;
-    const { data, error } = await client.from('books').upsert(payload, { onConflict: existingId ? 'id' : 'isbn' }).select().single();
-    if (error) throw error;
-    return toUiBook(data);
-  }
-
-  let loans = readStorage(STORAGE.loans, []);
-
-  function readStorage(key, fallback) {
-    try {
-      const value = JSON.parse(localStorage.getItem(key));
-      return Array.isArray(value) ? value : fallback;
-    } catch (error) {
-      console.warn(`Tidak dapat membaca ${key}:`, error);
-      return fallback;
-    }
-  }
-
-  function saveStorage() {
-    try {
-      localStorage.setItem(STORAGE.books, JSON.stringify(books));
-      localStorage.setItem(STORAGE.loans, JSON.stringify(loans));
-      return true;
-    } catch (error) {
-      console.error(error);
-      showToast('Penyimpanan gagal. Periksa ruang penyimpanan browser.', 'error');
-      return false;
-    }
-  }
-
-  function uid() {
-    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-  }
-
-  function el(id) { return document.getElementById(id); }
-
-  function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, char => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    })[char]);
-  }
-
-  function localDate(date = new Date()) {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-
-  function addDays(dateString, days) {
-    const [year, month, day] = dateString.split('-').map(Number);
-    const date = new Date(year, month - 1, day);
-    date.setDate(date.getDate() + days);
-    return localDate(date);
-  }
-
-  function parseDate(dateString) {
-    const [year, month, day] = String(dateString).split('-').map(Number);
-    return new Date(year, month - 1, day);
-  }
-
-  function daysBetween(fromDate, toDate) {
-    return Math.round((parseDate(toDate) - parseDate(fromDate)) / 86400000);
-  }
-
-  function formatDate(dateString) {
-    if (!dateString) return '-';
-    return parseDate(dateString).toLocaleDateString('id-ID', {
-      day: '2-digit', month: 'short', year: 'numeric'
-    });
-  }
-
-  function rupiah(value) {
-    return new Intl.NumberFormat('id-ID', {
-      style: 'currency', currency: 'IDR', maximumFractionDigits: 0
-    }).format(Number(value) || 0);
-  }
-
-  function showToast(message, type = 'success') {
-    const toast = document.createElement('div');
-    const color = type === 'error'
-      ? 'border-red-200 bg-red-50 text-red-800'
-      : 'border-emerald-200 bg-emerald-50 text-emerald-800';
-    toast.className = `toast rounded-xl border ${color} px-4 py-3 text-sm shadow-lg`;
-    toast.textContent = message;
-    el('toast-region').appendChild(toast);
-    setTimeout(() => toast.remove(), 3600);
-  }
-
-  function showPage(page) {
-    if (['dashboard','books','circulation','import'].includes(page) && !['administrator','petugas'].includes(window.FPIK_CURRENT_USER?.role)) {
-      page = 'opac';
-    }
-    document.querySelectorAll('.page').forEach(section => {
-      section.classList.toggle('active', section.id === `page-${page}`);
-    });
-    document.querySelectorAll('.nav-link').forEach(button => {
-      const active = button.dataset.page === page;
-      button.classList.toggle('active', active);
-      button.classList.toggle('text-ocean-100', !active);
-    });
-    el('main-nav').classList.remove('flex');
-    el('main-nav').classList.add('hidden');
-    renderAll();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
- window.FPIK_SHOW_PAGE = showPage;
-
-  function bookAvailable(book) {
-    const borrowed = loans.filter(loan => loan.bookId === book.id && !loan.returnDate).length;
-    return Math.max(0, Number(book.stock) - borrowed);
-  }
-
-  function getSafeCoverUrl(value) {
-    if (!value) return '';
-    try {
-      const url = new URL(value, window.location.href);
-      return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
-    } catch (_) { return ''; }
-  }
-
-  function ensureBookDetailModal() {
-    if (el('book-detail-modal')) return;
-    const modal = document.createElement('div');
-    modal.id = 'book-detail-modal';
-    modal.className = 'fixed inset-0 z-[100] hidden items-center justify-center bg-slate-950/60 p-4';
-    modal.setAttribute('role', 'dialog');
-    modal.setAttribute('aria-modal', 'true');
-    modal.setAttribute('aria-labelledby', 'book-detail-title');
-    modal.innerHTML = `
-      <div class="relative max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl sm:p-7">
-        <button type="button" id="book-detail-close" aria-label="Tutup detail buku" class="absolute right-4 top-4 rounded-full bg-slate-100 px-3 py-2 text-slate-600 hover:bg-slate-200"><i class="fa-solid fa-xmark"></i></button>
-        <div id="book-detail-content"></div>
-      </div>`;
-    document.body.appendChild(modal);
-    modal.addEventListener('click', event => { if (event.target === modal) closeBookDetail(); });
-    el('book-detail-close').addEventListener('click', closeBookDetail);
-    document.querySelectorAll('.nav-link').forEach(button => {
-      const active = button.dataset.page === page;
-      button.classList.toggle('active', active);
-      button.classList.toggle('text-ocean-100', !active);
-    });
-    el('main-nav').classList.remove('flex');
-    el('main-nav').classList.add('hidden');
-    renderAll();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }
-
-  window.FPIK_SHOW_PAGE = showPage;
-
-  function bookAvailable(book) {
-    const borrowed = loans.filter(loan => loan.bookId === book.id && !loan.returnDate).length;
-    return Math.max(0, Number(book.stock) - borrowed);
-  }
-
-
-  function getSafeCoverUrl(value) {
-    if (!value) return '';
-    try {
-      const url = new URL(value, window.location.href);
-      return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
-    } catch (_) { return ''; }
-  }
-
-  function ensureBookDetailModal() {
-    if (el('book-detail-modal')) return;
-    const modal = document.createElement('div');
-    modal.id = 'book-detail-modal';
-    modal.className = 'fixed inset-0 z-[100] hidden items-center justify-center bg-slate-950/60 p-4';
-    modal.setAttribute('role', 'dialog');
-    modal.setAttribute('aria-modal', 'true');
-    modal.setAttribute('aria-labelledby', 'book-detail-title');
-    modal.innerHTML = `
-      <div class="relative max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl sm:p-7">
-        <button type="button" id="book-detail-close" aria-label="Tutup detail buku" class="absolute right-4 top-4 rounded-full bg-slate-100 px-3 py-2 text-slate-600 hover:bg-slate-200"><i class="fa-solid fa-xmark"></i></button>
-        <div id="book-detail-content"></div>
-      </div>`;
-    document.body.appendChild(modal);
-    modal.addEventListener('click', event => { if (event.target === modal) closeBookDetail(); });
-    el('book-detail-close').addEventListener('click', closeBookDetail);
-    document.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && !el('book-detail-modal').classList.contains('hidden')) closeBookDetail();
-    });
-  }
-
- function showBookDetail(bookId) {
-    const book = books.find(item => String(item.id) === String(bookId));
-    if (!book) return;
-    ensureBookDetailModal();
-    const available = bookAvailable(book);
-    const cover = getSafeCoverUrl(book.coverUrl);
-    const detailRows = [
-      ['Pengarang', book.author], ['Penerbit', book.publisher], ['Tahun terbit', book.year],
-      ['ISBN', book.isbn], ['Sub-disiplin', book.discipline], ['Jumlah halaman', book.pages],
-      ['Edisi', book.edition], ['Lokasi rak', book.shelf], ['Jumlah eksemplar', book.stock],
-      ['Ketersediaan', `${available} tersedia dari ${Number(book.stock || 0)} eksemplar`]
-    ];
-    el('book-detail-content').innerHTML = `
-      <div class="grid gap-6 sm:grid-cols-[180px_1fr]">
-        <div class="flex justify-center sm:block">
-          ${cover ? `<img src="${escapeHtml(cover)}" alt="Sampul ${escapeHtml(book.title)}" class="max-h-64 w-40 rounded-xl border border-slate-200 object-cover shadow-sm" onerror="this.style.display='none'">` : `<div class="flex h-56 w-40 items-center justify-center rounded-xl bg-ocean-50 text-5xl text-ocean-700"><i class="fa-solid fa-book"></i></div>`}
+  <header class="bg-gradient-to-r from-ocean-950 via-ocean-800 to-ocean-600 text-white shadow-lg">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6">
+      <div class="flex items-center justify-between gap-4 py-5">
+        <a href="#opac" class="flex min-w-0 items-center gap-3" aria-label="Beranda katalog">
+          <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-2xl">
+            <i class="fa-solid fa-book-open-reader"></i>
+          </div>
+          <div class="min-w-0">
+            <p class="text-xs font-semibold uppercase tracking-[.18em] text-ocean-100">Universitas Khairun</p>
+            <h1 class="truncate text-lg font-bold sm:text-xl">Perpustakaan FPIK</h1>
+            <p class="hidden text-xs text-ocean-100 sm:block">Fakultas Perikanan dan Ilmu Kelautan</p>
+          </div>
+        </a>
+        <div class="hidden items-center gap-2 text-right text-xs text-ocean-100 md:flex">
+          <i class="fa-solid fa-water text-lg"></i>
+          <span>Literasi • Perikanan • Kelautan</span>
         </div>
-        <div class="min-w-0 pr-7">
-          <span class="inline-flex rounded-full px-3 py-1 text-xs font-semibold ${available > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">${available > 0 ? 'Tersedia' : 'Tidak tersedia'}</span>
-          <h2 id="book-detail-title" class="mt-3 text-2xl font-bold leading-tight text-slate-900">${escapeHtml(book.title)}</h2>
-          <p class="mt-2 text-sm text-slate-600">${escapeHtml(book.author || 'Pengarang tidak dicantumkan')}</p>
-          <div class="mt-5 grid gap-x-5 gap-y-3 sm:grid-cols-2">
-            ${detailRows.map(([label, value]) => `<div class="border-b border-slate-100 pb-2"><div class="text-xs font-medium uppercase tracking-wide text-slate-400">${escapeHtml(label)}</div><div class="mt-1 text-sm font-medium text-slate-800">${escapeHtml(value === 0 ? '0' : value || '-')}</div></div>`).join('')}
+        <button id="mobile-menu-button" class="rounded-lg p-2 hover:bg-white/10 md:hidden" aria-label="Buka menu">
+          <i class="fa-solid fa-bars text-xl"></i>
+        </button>
+      </div>
+      <div class="flex items-center justify-between gap-3 pb-3 text-xs text-ocean-100"><span id="signed-in-user">Pengunjung umum • Akses katalog publik</span><div class="flex gap-2"><button id="login-button" class="rounded-lg border border-white/40 px-3 py-1.5 font-semibold hover:bg-white/10"><i class="fa-solid fa-right-to-bracket mr-1"></i>Login Petugas</button><button id="logout-button" class="hidden rounded-lg border border-white/30 px-3 py-1.5 hover:bg-white/10"><i class="fa-solid fa-right-from-bracket mr-1"></i>Keluar</button></div></div>
+      <nav id="main-nav" class="hidden flex-col gap-1 pb-4 md:flex md:flex-row md:flex-wrap">
+        <button class="nav-link active rounded-lg px-4 py-2 text-left text-sm font-semibold hover:bg-white/10" data-page="opac"><i class="fa-solid fa-magnifying-glass mr-2"></i>Katalog OPAC</button>
+        <button data-page="dashboard" data-staff-only="true" class="nav-link hidden rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white"><i class="fa-solid fa-chart-line mr-2"></i>Dashboard Admin</button>
+        <button data-page="books" data-staff-only="true" class="nav-link hidden rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white"><i class="fa-solid fa-book mr-2"></i>Data Buku</button>
+        <button data-page="circulation" data-staff-only="true" class="nav-link hidden rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white"><i class="fa-solid fa-arrows-rotate mr-2"></i>Transaksi Sirkulasi</button>
+        <button data-page="import" data-staff-only="true" class="nav-link hidden rounded-lg px-4 py-2 text-left text-sm font-semibold text-ocean-100 hover:bg-white/10 hover:text-white"><i class="fa-solid fa-file-csv mr-2"></i>Import Data CSV</button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+    <section id="page-opac" class="page active">
+      <div class="mb-7 overflow-hidden rounded-3xl bg-gradient-to-br from-ocean-900 via-ocean-700 to-cyan-600 p-6 text-white shadow-soft sm:p-9">
+        <div class="max-w-3xl">
+          <span class="mb-3 inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold"><i class="fa-solid fa-compass"></i> OPAC • Online Public Access Catalog</span>
+          <h2 class="text-2xl font-bold leading-tight sm:text-4xl">Temukan referensi perikanan dan kelautan.</h2>
+          <p class="mt-3 max-w-2xl text-sm leading-6 text-ocean-50 sm:text-base">Jelajahi koleksi Perpustakaan Fakultas Perikanan dan Ilmu Kelautan Universitas Khairun melalui katalog digital.</p>
+          <div class="mt-6 flex max-w-2xl flex-col gap-2 rounded-2xl bg-white p-2 shadow-lg sm:flex-row">
+            <div class="flex flex-1 items-center gap-3 px-3 text-slate-500"><i class="fa-solid fa-magnifying-glass"></i><input id="catalog-search" class="w-full py-2 text-sm text-slate-800 outline-none" placeholder="Cari judul, pengarang, ISBN, atau sub-disiplin..." /></div>
+            <button id="clear-search" class="btn-primary"><i class="fa-solid fa-xmark mr-2"></i>Reset</button>
           </div>
         </div>
       </div>
-      <div class="mt-6 border-t border-slate-100 pt-5">
-        <h3 class="font-semibold text-slate-900">Deskripsi</h3>
-        <p class="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-600">${escapeHtml(book.description || 'Deskripsi buku belum tersedia.')}</p>
-        <h3 class="mt-5 font-semibold text-slate-900">Kata kunci</h3>
-        <p class="mt-2 text-sm text-slate-600">${escapeHtml(book.keywords || 'Kata kunci belum tersedia.')}</p>
-      </div>`;
-    const modal = el('book-detail-modal');
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-    document.body.classList.add('overflow-hidden');
-  }
+      <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div><h3 class="text-xl font-bold text-slate-900">Koleksi buku</h3><p class="mt-1 text-sm text-slate-500">Daftar koleksi yang tersedia di perpustakaan.</p></div>
+        <span id="catalog-count" class="rounded-full bg-ocean-100 px-3 py-1.5 text-sm font-semibold text-ocean-800">0 judul</span>
+      </div>
+      <div id="catalog-grid" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"></div>
+    </section>
 
-  function closeBookDetail() {
-    const modal = el('book-detail-modal');
-    if (!modal) return;
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
-    document.body.classList.remove('overflow-hidden');
-  }
+    <section id="page-dashboard" class="page">
+      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">RINGKASAN PERPUSTAKAAN</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Dashboard Admin</h2><p class="mt-2 text-sm text-slate-500">Pantau koleksi, sirkulasi, dan denda perpustakaan.</p></div>
+      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Total Judul Buku</span><span class="rounded-xl bg-ocean-100 p-3 text-ocean-700"><i class="fa-solid fa-book"></i></span></div><p id="stat-titles" class="mt-4 text-3xl font-bold">0</p><p class="mt-1 text-xs text-slate-400">Judul unik dalam katalog</p></div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Total Eksemplar</span><span class="rounded-xl bg-cyan-100 p-3 text-cyan-700"><i class="fa-solid fa-layer-group"></i></span></div><p id="stat-copies" class="mt-4 text-3xl font-bold">0</p><p class="mt-1 text-xs text-slate-400">Jumlah stok seluruh buku</p></div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Peminjaman Aktif</span><span class="rounded-xl bg-amber-100 p-3 text-amber-700"><i class="fa-solid fa-book-open"></i></span></div><p id="stat-loans" class="mt-4 text-3xl font-bold">0</p><p class="mt-1 text-xs text-slate-400">Belum dikembalikan</p></div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft"><div class="flex items-center justify-between"><span class="text-sm text-slate-500">Total Denda Terkumpul</span><span class="rounded-xl bg-emerald-100 p-3 text-emerald-700"><i class="fa-solid fa-wallet"></i></span></div><p id="stat-fines" class="mt-4 text-2xl font-bold">Rp0</p><p class="mt-1 text-xs text-slate-400">Denda yang dicatat saat pengembalian</p></div>
+      </div>
+      <div class="mt-7 rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+        <div class="mb-4 flex flex-wrap items-center justify-between gap-2"><div><h3 class="font-bold text-slate-900">Peminjaman jatuh tempo terdekat</h3><p class="text-xs text-slate-500">Peminjaman aktif, diurutkan berdasarkan tanggal jatuh tempo.</p></div><span class="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">Perlu dipantau</span></div>
+        <div class="table-wrap"><table class="w-full min-w-[650px] text-left text-sm"><thead class="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-3">Peminjam</th><th class="p-3">Buku</th><th class="p-3">Tanggal Pinjam</th><th class="p-3">Jatuh Tempo</th><th class="p-3">Status</th></tr></thead><tbody id="due-table"></tbody></table></div>
+      </div>
+    </section>
 
-  function renderCatalog() {
-    const query = el('catalog-search').value.trim().toLowerCase();
-    const filtered = books.filter(book => [
-      book.title, book.author, book.isbn, book.discipline, book.publisher, book.description, book.keywords, book.edition
-    ].join(' ').toLowerCase().includes(query));
-
-    el('catalog-count').textContent = `${filtered.length} judul`;
-    if (!filtered.length) {
-      el('catalog-grid').innerHTML = `<div class="col-span-full rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-        <i class="fa-solid fa-book-open mb-3 text-3xl text-slate-300"></i>
-        <p class="font-semibold text-slate-700">${books.length ? 'Buku tidak ditemukan' : 'Belum ada koleksi buku'}</p>
-        <p class="mt-1 text-sm text-slate-500">${books.length ? 'Coba kata kunci yang berbeda.' : 'Petugas dapat menambahkan buku melalui menu Data Buku atau Import CSV.'}</p>
-      </div>`;
-      return;
-    }
- el('catalog-grid').innerHTML = filtered.map(book => {
-      const available = bookAvailable(book);
-      return `<article class="flex flex-col rounded-2xl border border-slate-100 bg-white p-5 shadow-soft transition hover:-translate-y-1 hover:shadow-lg">
-        <div class="mb-4 flex items-start justify-between gap-3">
-          ${book.coverUrl ? `<img src="${escapeHtml(book.coverUrl)}" alt="Sampul ${escapeHtml(book.title)}" loading="lazy" referrerpolicy="no-referrer" class="h-28 w-20 rounded-lg border border-slate-100 object-cover" onerror="this.style.display='none'">` : '<span class="rounded-xl bg-ocean-50 p-3 text-xl text-ocean-700"><i class="fa-solid fa-book"></i></span>'}
-          <span class="rounded-full px-3 py-1 text-xs font-semibold ${available > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}">${available} tersedia</span>
+    <section id="page-books" class="page">
+      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">MANAJEMEN KOLEKSI</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Kelola Data Buku</h2><p class="mt-2 text-sm text-slate-500">Tambah, ubah, dan hapus data koleksi perpustakaan.</p></div>
+      <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
+        <div class="h-fit rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+          <div class="mb-5 flex items-center justify-between"><h3 id="book-form-title" class="font-bold text-slate-900">Tambah Buku</h3><span class="rounded-lg bg-ocean-50 px-2 py-1 text-xs font-semibold text-ocean-700">Form koleksi</span></div>
+          <form id="book-form" class="space-y-3">
+            <input type="hidden" id="book-id" />
+            <label class="block text-sm font-medium">Judul Buku <span class="text-red-500">*</span><input id="book-title" class="field mt-1" required maxlength="250" /></label>
+            <label class="block text-sm font-medium">Pengarang<input id="book-author" class="field mt-1" maxlength="200" /></label>
+            <label class="block text-sm font-medium">Penerbit<input id="book-publisher" class="field mt-1" maxlength="200" /></label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm font-medium">Tahun<input id="book-year" class="field mt-1" type="number" min="1000" max="2100" /></label>
+              <label class="block text-sm font-medium">ISBN<input id="book-isbn" class="field mt-1" maxlength="40" /></label>
+            </div>
+            <label class="block text-sm font-medium">Sub-Disiplin Ilmu<input id="book-discipline" class="field mt-1" placeholder="Contoh: Budidaya Perairan" maxlength="150" /></label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm font-medium">Stok (eksemplar)<input id="book-stock" class="field mt-1" type="number" min="0" step="1" value="1" required /></label>
+              <label class="block text-sm font-medium">Lokasi Rak<input id="book-shelf" class="field mt-1" placeholder="Contoh: A-01" maxlength="80" /></label>
+            </div>
+            <label class="block text-sm font-medium">Deskripsi Buku<textarea id="book-description" class="field mt-1" rows="3" maxlength="5000" placeholder="Ringkasan isi atau keterangan buku"></textarea></label>
+            <label class="block text-sm font-medium">Kata Kunci<input id="book-keywords" class="field mt-1" maxlength="500" placeholder="Contoh: mangrove, ekologi pesisir, konservasi" /></label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm font-medium">Jumlah Halaman<input id="book-pages" class="field mt-1" type="number" min="1" step="1" /></label>
+              <label class="block text-sm font-medium">Edisi<input id="book-edition" class="field mt-1" maxlength="100" placeholder="Contoh: Edisi kedua" /></label>
+            </div>
+            <label class="block text-sm font-medium">URL Sampul Buku<input id="book-cover-url" class="field mt-1" type="url" maxlength="1000" placeholder="https://contoh.ac.id/sampul-buku.jpg" /></label>
+            <div class="flex flex-wrap gap-2 pt-2"><button class="btn-primary" type="submit"><i class="fa-solid fa-floppy-disk mr-2"></i><span id="book-submit-label">Simpan Buku</span></button><button class="btn-muted" id="book-cancel" type="button">Batal</button></div>
+          </form>
         </div>
-        <h3 class="text-base font-bold leading-snug text-slate-900"><button type="button" class="text-left hover:text-ocean-700 hover:underline" data-book-detail="${escapeHtml(book.id)}">${escapeHtml(book.title)}</button></h3>
-        <p class="mt-2 text-sm text-slate-600"><i class="fa-regular fa-user mr-2 text-ocean-600"></i>${escapeHtml(book.author || 'Pengarang tidak dicantumkan')}</p>
-        <div class="mt-4 space-y-2 border-t border-slate-100 pt-3 text-xs text-slate-500">
-          <p><i class="fa-regular fa-building mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.publisher || '-')} • ${escapeHtml(book.year || '-')}</p>
-          <p><i class="fa-solid fa-fish-fins mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.discipline || 'Sub-disiplin belum diisi')}</p>
-          <p><i class="fa-solid fa-barcode mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.isbn || 'ISBN tidak tersedia')}</p>
-          <p><i class="fa-solid fa-location-dot mr-2 w-3 text-ocean-600"></i>Rak: ${escapeHtml(book.shelf || '-')}</p>
-          ${book.pages ? `<p><i class="fa-regular fa-file-lines mr-2 w-3 text-ocean-600"></i>${escapeHtml(book.pages)} halaman${book.edition ? ` • ${escapeHtml(book.edition)}` : ''}</p>` : ''}
-          ${book.description ? `<p class="line-clamp-3">${escapeHtml(book.description)}</p>` : ''}
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+          <div class="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 class="font-bold text-slate-900">Daftar Koleksi</h3><p class="text-xs text-slate-500">Kelola data buku yang tersimpan.</p></div><input id="book-table-search" class="field max-w-xs text-sm" placeholder="Cari buku..." /></div>
+          <div class="table-wrap"><table class="w-full min-w-[700px] text-left text-sm"><thead class="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-3">Judul / ISBN</th><th class="p-3">Pengarang</th><th class="p-3">Tahun</th><th class="p-3">Stok</th><th class="p-3">Aksi</th></tr></thead><tbody id="books-table"></tbody></table></div>
         </div>
-        <button type="button" data-book-detail="${escapeHtml(book.id)}" class="mt-4 w-full rounded-xl bg-ocean-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-ocean-800">Lihat detail buku <i class="fa-solid fa-arrow-right ml-1"></i></button>
-      </article>`;
-    }).join('');
-  }
+      </div>
+    </section>
 
-  function renderDashboard() {
-    const activeLoans = loans.filter(loan => !loan.returnDate);
-    el('stat-titles').textContent = books.length;
-    el('stat-copies').textContent = books.reduce((sum, book) => sum + Number(book.stock || 0), 0);
-    el('stat-loans').textContent = activeLoans.length;
-    el('stat-fines').textContent = rupiah(loans.reduce((sum, loan) => sum + Number(loan.fine || 0), 0));
+    <section id="page-circulation" class="page">
+      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">LAYANAN SIRKULASI</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Transaksi Peminjaman & Pengembalian</h2><p class="mt-2 text-sm text-slate-500">Masa pinjam 7 hari; denda keterlambatan Rp1.000 per hari.</p></div>
+      <div class="grid gap-6 lg:grid-cols-2">
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+          <div class="mb-5 flex items-center gap-3"><span class="rounded-xl bg-ocean-100 p-3 text-ocean-700"><i class="fa-solid fa-arrow-right-from-bracket"></i></span><div><h3 class="font-bold">Form Peminjaman</h3><p class="text-xs text-slate-500">Catat mahasiswa/dosen yang meminjam buku.</p></div></div>
+          <form id="loan-form" class="space-y-3">
+            <label class="block text-sm font-medium">Nama Peminjam <span class="text-red-500">*</span><input id="loan-name" class="field mt-1" required maxlength="150" /></label>
+            <label class="block text-sm font-medium">NIM / NIP / Identitas<input id="loan-identity" class="field mt-1" maxlength="60" /></label>
+            <label class="block text-sm font-medium">Pilih Buku <span class="text-red-500">*</span><select id="loan-book" class="field mt-1" required><option value="">Pilih buku tersedia</option></select></label>
+            <div class="rounded-xl bg-ocean-50 p-3 text-sm text-ocean-900"><i class="fa-regular fa-calendar mr-2"></i>Jatuh tempo otomatis: 7 hari setelah tanggal peminjaman.</div>
+            <button class="btn-primary w-full sm:w-auto" type="submit"><i class="fa-solid fa-check mr-2"></i>Simpan Peminjaman</button>
+          </form>
+        </div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+          <div class="mb-5 flex items-center gap-3"><span class="rounded-xl bg-emerald-100 p-3 text-emerald-700"><i class="fa-solid fa-arrow-right-to-bracket"></i></span><div><h3 class="font-bold">Form Pengembalian</h3><p class="text-xs text-slate-500">Pilih transaksi aktif untuk memproses pengembalian.</p></div></div>
+          <form id="return-form" class="space-y-3">
+            <label class="block text-sm font-medium">Peminjaman Aktif <span class="text-red-500">*</span><select id="return-loan" class="field mt-1" required><option value="">Pilih transaksi aktif</option></select></label>
+            <div id="return-preview" class="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">Pilih transaksi untuk melihat estimasi keterlambatan dan denda.</div>
+            <button class="btn-primary w-full sm:w-auto" type="submit"><i class="fa-solid fa-rotate-left mr-2"></i>Proses Pengembalian</button>
+          </form>
+        </div>
+      </div>
+      <div class="mt-7 rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-6">
+        <div class="mb-4"><h3 class="font-bold text-slate-900">Riwayat Transaksi</h3><p class="text-xs text-slate-500">Seluruh peminjaman dan pengembalian yang tercatat pada perangkat ini.</p></div>
+        <div class="table-wrap"><table class="w-full min-w-[850px] text-left text-sm"><thead class="border-b bg-slate-50 text-xs uppercase text-slate-500"><tr><th class="p-3">Peminjam</th><th class="p-3">Buku</th><th class="p-3">Tanggal Pinjam</th><th class="p-3">Jatuh Tempo</th><th class="p-3">Dikembalikan</th><th class="p-3">Denda</th><th class="p-3">Status</th></tr></thead><tbody id="history-table"></tbody></table></div>
+      </div>
+    </section>
 
-    const sorted = [...activeLoans].sort((a, b) => a.dueDate.localeCompare(b.dueDate));
-    el('due-table').innerHTML = sorted.length ? sorted.map(loan => {
-      const overdue = daysBetween(loan.dueDate, localDate()) > 0;
-      return `<tr class="border-b last:border-0">
-        <td class="p-3 font-medium">${escapeHtml(loan.name)}<div class="text-xs text-slate-400">${escapeHtml(loan.identity || '-')}</div></td>
-        <td class="p-3">${escapeHtml(loan.bookTitle)}</td>
-        <td class="p-3">${formatDate(loan.loanDate)}</td>
-        <td class="p-3">${formatDate(loan.dueDate)}</td>
-        <td class="p-3"><span class="rounded-full px-2.5 py-1 text-xs font-semibold ${overdue ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}">${overdue ? 'Terlambat' : 'Aktif'}</span></td>
-      </tr>`;
-    }).join('') : `<tr><td colspan="5" class="p-8 text-center text-slate-400">Belum ada peminjaman aktif.</td></tr>`;
-  }
+    <section id="page-import" class="page">
+      <div class="mb-7"><p class="text-sm font-semibold text-ocean-700">MANAJEMEN DATA MASSAL</p><h2 class="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">Import Data Buku dari CSV</h2><p class="mt-2 text-sm text-slate-500">Masukkan koleksi dari Excel melalui berkas CSV.</p></div>
+      <div class="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-7">
+          <div class="mb-5 flex items-center gap-3"><span class="rounded-xl bg-ocean-100 p-3 text-ocean-700"><i class="fa-solid fa-file-csv text-xl"></i></span><div><h3 class="font-bold">Unggah berkas CSV</h3><p class="text-xs text-slate-500">Format .csv dengan baris pertama sebagai header.</p></div></div>
+          <form id="import-form" class="space-y-4">
+            <input id="csv-file" type="file" accept=".csv,text/csv" class="field file:mr-3 file:rounded-lg file:border-0 file:bg-ocean-50 file:px-3 file:py-2 file:font-semibold file:text-ocean-800" required />
+            <label class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"><input id="import-replace" type="checkbox" class="mt-1" /><span><strong>Ganti seluruh data buku yang ada</strong><br />Jika tidak dicentang, data dari CSV akan ditambahkan. ISBN yang sama akan memperbarui data buku tersebut.</span></label>
+            <button class="btn-primary" type="submit"><i class="fa-solid fa-cloud-arrow-up mr-2"></i>Import CSV</button>
+          </form>
+          <div id="import-result" class="mt-4 hidden rounded-xl p-4 text-sm"></div>
+        </div>
+        <div class="rounded-2xl border border-slate-100 bg-white p-5 shadow-soft sm:p-7">
+          <h3 class="font-bold">Format kolom CSV</h3>
+          <p class="mt-2 text-sm leading-6 text-slate-600">Gunakan nama header berikut. Header tidak peka huruf besar/kecil; beberapa variasi nama Indonesia/Inggris juga dikenali.</p>
+          <div class="mt-4 overflow-x-auto rounded-xl bg-slate-950 p-4 text-xs leading-6 text-emerald-300"><code>judul,pengarang,penerbit,tahun,isbn,sub-disiplin,stok,lokasi-rak,deskripsi,kata-kunci,jumlah-halaman,edisi,url-sampul<br>"Biologi Laut","A. Penulis","Penerbit X",2022,9780000000000,"Ekologi Laut",5,"A-01","Pengantar ekologi laut","ekologi; pesisir",250,"Edisi kedua",https://contoh.ac.id/sampul.jpg</code></div>
+          <ul class="mt-4 space-y-2 text-sm text-slate-600">
+            <li><i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>Ekspor lembar Excel menjadi CSV UTF-8 (Comma delimited).</li>
+            <li><i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>Kolom judul wajib diisi; stok kosong akan dianggap 0.</li>
+            <li><i class="fa-solid fa-circle-check mr-2 text-emerald-600"></i>Gunakan tanda kutip untuk teks yang mengandung koma.</li>
+            <li><i class="fa-solid fa-circle-info mr-2 text-ocean-600"></i>Data katalog disimpan di basis data Supabase saat koneksi tersedia.</li>
+          </ul>
+          <button id="download-template" class="btn-muted mt-5"><i class="fa-solid fa-download mr-2"></i>Unduh Template CSV</button>
+        </div>
+      </div>
+    </section>
 
-  function resetBookForm() {
-    el('book-form').reset();
-    el('book-id').value = '';
-    el('book-stock').value = 1;
-    el('book-form-title').textContent = 'Tambah Buku';
-    el('book-submit-label').textContent = 'Simpan Buku';
-  }
+    <div class="mt-10 rounded-2xl border border-ocean-100 bg-white p-4 text-xs leading-5 text-slate-500 shadow-sm sm:flex sm:items-center sm:justify-between sm:gap-4">
+      <p><i class="fa-solid fa-circle-info mr-2 text-ocean-600"></i>Katalog publik terhubung ke basis data perpustakaan. Pengelolaan koleksi dan transaksi hanya tersedia bagi petugas yang masuk.</p>
+      <p class="mt-2 shrink-0 sm:mt-0">© <span id="current-year"></span> Perpustakaan FPIK Universitas Khairun</p>
+    </div>
+  </main>
 
-  function renderBooksTable() {
-    const query = el('book-table-search').value.trim().toLowerCase();
-    const filtered = books.filter(book => [book.title, book.author, book.isbn, book.keywords, book.description, book.discipline].join(' ').toLowerCase().includes(query));
-    el('books-table').innerHTML = filtered.length ? filtered.map(book => `<tr class="border-b last:border-0">
-      <td class="p-3"><div class="max-w-xs font-semibold text-slate-800">${escapeHtml(book.title)}</div><div class="text-xs text-slate-400">${escapeHtml(book.isbn || '-')}</div></td>
-      <td class="p-3">${escapeHtml(book.author || '-')}</td>
-      <td class="p-3">${escapeHtml(book.year || '-')}</td>
-      <td class="p-3">${bookAvailable(book)} / ${Number(book.stock)}</td>
-      <td class="p-3"><div class="flex gap-2"><button class="rounded-lg bg-ocean-50 px-3 py-2 text-xs font-semibold text-ocean-800 hover:bg-ocean-100" data-edit-book="${escapeHtml(book.id)}"><i class="fa-solid fa-pen"></i></button><button class="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100" data-delete-book="${escapeHtml(book.id)}"><i class="fa-solid fa-trash"></i></button></div></td>
-    </tr>`).join('') : `<tr><td colspan="5" class="p-8 text-center text-slate-400">Data buku belum tersedia.</td></tr>`;
-  }
+  <div id="toast-region" class="fixed bottom-4 right-4 z-50 flex max-w-sm flex-col gap-2" aria-live="polite"></div>
 
-  function renderLoanOptions() {
-    const availableBooks = books.filter(book => bookAvailable(book) > 0);
-    el('loan-book').innerHTML = `<option value="">Pilih buku tersedia</option>` + availableBooks.map(book =>
-      `<option value="${escapeHtml(book.id)}">${escapeHtml(book.title)} — tersedia ${bookAvailable(book)}</option>`
-    ).join('');
-
-    const active = loans.filter(loan => !loan.returnDate);
-    el('return-loan').innerHTML = `<option value="">Pilih transaksi aktif</option>` + active.map(loan =>
-      `<option value="${escapeHtml(loan.id)}">${escapeHtml(loan.name)} — ${escapeHtml(loan.bookTitle)} (jatuh tempo ${formatDate(loan.dueDate)})</option>`
-    ).join('');
-    renderReturnPreview();
-  }
-
-  function renderReturnPreview() {
-    const loan = loans.find(item => item.id === el('return-loan').value && !item.returnDate);
-    if (!loan) {
-      el('return-preview').textContent = 'Pilih transaksi untuk melihat estimasi keterlambatan dan denda.';
-      return;
-    }
-    const today = localDate();
-    const lateDays = Math.max(0, daysBetween(loan.dueDate, today));
-    const fine = lateDays * FINE_PER_DAY;
-    el('return-preview').innerHTML = `<div class="flex justify-between gap-3"><span>Peminjam</span><strong class="text-slate-800">${escapeHtml(loan.name)}</strong></div>
-      <div class="mt-2 flex justify-between gap-3"><span>Jatuh tempo</span><strong class="text-slate-800">${formatDate(loan.dueDate)}</strong></div>
-      <div class="mt-2 flex justify-between gap-3"><span>Terlambat</span><strong class="${lateDays ? 'text-red-700' : 'text-emerald-700'}">${lateDays} hari</strong></div>
-      <div class="mt-3 flex justify-between border-t border-slate-200 pt-3"><span class="font-semibold">Estimasi denda</span><strong class="text-lg text-ocean-800">${rupiah(fine)}</strong></div>`;
-  }
-
-  function renderHistory() {
-    const sorted = [...loans].sort((a, b) => b.loanDate.localeCompare(a.loanDate));
-    el('history-table').innerHTML = sorted.length ? sorted.map(loan => `<tr class="border-b last:border-0">
-      <td class="p-3 font-medium">${escapeHtml(loan.name)}<div class="text-xs text-slate-400">${escapeHtml(loan.identity || '-')}</div></td>
-      <td class="p-3">${escapeHtml(loan.bookTitle)}</td>
-      <td class="p-3">${formatDate(loan.loanDate)}</td>
-      <td class="p-3">${formatDate(loan.dueDate)}</td>
-      <td class="p-3">${formatDate(loan.returnDate)}</td>
-      <td class="p-3">${rupiah(loan.fine || 0)}</td>
-      <td class="p-3"><span class="rounded-full px-2.5 py-1 text-xs font-semibold ${loan.returnDate ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}">${loan.returnDate ? 'Dikembalikan' : 'Dipinjam'}</span></td>
-    </tr>`).join('') : `<tr><td colspan="7" class="p-8 text-center text-slate-400">Belum ada riwayat transaksi.</td></tr>`;
-  }
- function renderAll() {
-    renderCatalog();
-    renderDashboard();
-    renderBooksTable();
-    renderLoanOptions();
-    renderHistory();
-  }
-
-  function editBook(id) {
-    const book = books.find(item => item.id === id);
-    if (!book) return;
-    el('book-id').value = book.id;
-    el('book-title').value = book.title;
-    el('book-author').value = book.author;
-    el('book-publisher').value = book.publisher;
-    el('book-year').value = book.year;
-    el('book-isbn').value = book.isbn;
-    el('book-discipline').value = book.discipline;
-    el('book-stock').value = book.stock;
-    el('book-shelf').value = book.shelf;
-    el('book-description').value = book.description || '';
-    el('book-keywords').value = book.keywords || '';
-    el('book-pages').value = book.pages || '';
-    el('book-edition').value = book.edition || '';
-    el('book-cover-url').value = book.coverUrl || '';
-    el('book-form-title').textContent = 'Edit Buku';
-    el('book-submit-label').textContent = 'Perbarui Buku';
-    el('book-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-
-  async function deleteBook(id) {
-    const book = books.find(item => item.id === id);
-    if (!book) return;
-    if (loans.some(loan => loan.bookId === id && !loan.returnDate)) {
-      showToast('Buku masih memiliki peminjaman aktif dan tidak dapat dihapus.', 'error');
-      return;
-    }
-    if (!confirm(`Hapus buku "${book.title}" dari katalog?`)) return;
-    if (booksFromServer && window.FPIK_SUPABASE) {
-      const { error } = await window.FPIK_SUPABASE.from('books').delete().eq('id', id);
-      if (error) return showToast(`Gagal menghapus buku: ${error.message}`, 'error');
-    }
-    books = books.filter(item => item.id !== id);
-    saveStorage(); renderAll(); showToast('Data buku berhasil dihapus.');
-  }
-
-  async function handleBookSubmit(event) {
-    event.preventDefault();
-    const id = el('book-id').value;
-    const title = el('book-title').value.trim();
-    const stock = Number(el('book-stock').value);
-    if (!title) return showToast('Judul buku wajib diisi.', 'error');
-    if (!Number.isInteger(stock) || stock < 0) return showToast('Stok harus berupa bilangan bulat minimal 0.', 'error');
-
-    const data = {
-      title,
-      author: el('book-author').value.trim(),
-      publisher: el('book-publisher').value.trim(),
-      year: el('book-year').value,
-      isbn: el('book-isbn').value.trim(),
-      discipline: el('book-discipline').value.trim(),
-      stock,
-      shelf: el('book-shelf').value.trim(),
-      description: el('book-description').value.trim(),
-      keywords: el('book-keywords').value.trim(),
-      pages: el('book-pages').value.trim(),
-      edition: el('book-edition').value.trim(),
-      coverUrl: el('book-cover-url').value.trim()
-    };
-    if (data.pages && (!Number.isInteger(Number(data.pages)) || Number(data.pages) < 1)) return showToast('Jumlah halaman harus berupa bilangan bulat minimal 1.', 'error');
-    if (data.coverUrl) { try { const u = new URL(data.coverUrl); if (!['http:', 'https:'].includes(u.protocol)) throw new Error(); } catch (_) { return showToast('URL sampul harus diawali http:// atau https://.', 'error'); } }
-
-    if (!['administrator','petugas'].includes(window.FPIK_CURRENT_USER?.role)) return showToast('Silakan login sebagai petugas.', 'error');
-    try {
-      const saved = booksFromServer ? await saveBookToServer(data, id || null) : { id: id || uid(), ...data, createdAt: new Date().toISOString() };
-      const index = books.findIndex(book => book.id === saved.id);
-      if (index >= 0) books[index] = saved; else books.push(saved);
-      saveStorage(); resetBookForm(); renderAll();
-      showToast(id ? 'Data buku berhasil diperbarui.' : 'Buku berhasil ditambahkan.');
-    } catch (error) { showToast(`Gagal menyimpan buku: ${error.message}`, 'error'); }
-  }
-
-  function handleLoanSubmit(event) {
-    event.preventDefault();
-    const book = books.find(item => item.id === el('loan-book').value);
-    const name = el('loan-name').value.trim();
-    if (!book || bookAvailable(book) < 1) return showToast('Buku tidak tersedia. Perbarui pilihan buku.', 'error');
-    if (!name) return showToast('Nama peminjam wajib diisi.', 'error');
-
-    const loanDate = localDate();
-    loans.push({
-      id: uid(), bookId: book.id, bookTitle: book.title,
-      name, identity: el('loan-identity').value.trim(),
-      loanDate, dueDate: addDays(loanDate, LOAN_DAYS),
-      returnDate: null, fine: 0
-    });
-    saveStorage();
-    el('loan-form').reset();
-    renderAll();
-    showToast(`Peminjaman tercatat. Jatuh tempo ${formatDate(addDays(loanDate, LOAN_DAYS))}.`);
-  }
-
-  function handleReturnSubmit(event) {
-    event.preventDefault();
-    const loan = loans.find(item => item.id === el('return-loan').value && !item.returnDate);
-    if (!loan) return showToast('Pilih transaksi peminjaman aktif.', 'error');
-
-    const today = localDate();
-    const lateDays = Math.max(0, daysBetween(loan.dueDate, today));
-    loan.returnDate = today;
-    loan.fine = lateDays * FINE_PER_DAY;
-    saveStorage();
-    renderAll();
-    showToast(`Pengembalian berhasil. Denda: ${rupiah(loan.fine)}.`);
-  }
-
-  // CSV parser yang mendukung tanda kutip, koma di dalam sel, dan baris baru dalam kutipan.
-  function parseCSV(text) {
-    const rows = [];
-    let row = [], cell = '', quoted = false;
-    for (let i = 0; i < text.length; i++) {
-      const char = text[i], next = text[i + 1];
-      if (char === '"' && quoted && next === '"') { cell += '"'; i++; }
-      else if (char === '"') { quoted = !quoted; }
-      else if (char === ',' && !quoted) { row.push(cell); cell = ''; }
-      else if ((char === '\n' || char === '\r') && !quoted) {
-        if (char === '\r' && next === '\n') i++;
-        row.push(cell); cell = '';
-        if (row.some(value => value.trim() !== '')) rows.push(row);
-        row = [];
-      } else { cell += char; }
-    }
-    row.push(cell);
-    if (row.some(value => value.trim() !== '')) rows.push(row);
-    if (quoted) throw new Error('CSV memiliki tanda kutip yang tidak berpasangan.');
-    return rows;
-  }
-
-  function normalizeHeader(header) {
-    return String(header).replace(/^\uFEFF/, '').trim().toLowerCase()
-      .replace(/[_\s]+/g, '-');
-  }
-
-  function handleImport(event) {
-    event.preventDefault();
-    const file = el('csv-file').files[0];
-    if (!file) return showToast('Pilih file CSV terlebih dahulu.', 'error');
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const rows = parseCSV(String(reader.result || ''));
-        if (rows.length < 2) throw new Error('CSV tidak memiliki baris data.');
-        const headers = rows[0].map(normalizeHeader);
-        const aliases = {
-          title: ['judul', 'judul-buku', 'title', 'book-title', 'nama-buku'],
-          author: ['pengarang', 'penulis', 'author', 'writer'],
-          publisher: ['penerbit', 'publisher'],
-          year: ['tahun', 'tahun-terbit', 'year', 'publication-year'],
-          isbn: ['isbn', 'isbn-10', 'isbn-13'],
-          discipline: ['sub-disiplin', 'subdisiplin', 'disiplin', 'bidang-ilmu', 'discipline', 'subject'],
-          stock: ['stok', 'jumlah', 'eksemplar', 'stock', 'copies', 'quantity'],
-          shelf: ['lokasi-rak', 'rak', 'lokasi', 'shelf', 'location'],
-          description: ['deskripsi', 'description', 'ringkasan'],
-          keywords: ['kata-kunci', 'katakunci', 'keywords', 'keyword'],
-          pages: ['jumlah-halaman', 'halaman', 'pages', 'page-count'],
-          edition: ['edisi', 'edition'],
-          coverUrl: ['url-sampul', 'sampul', 'cover-url', 'cover_url', 'coverurl']
-        };
-        const indexFor = key => headers.findIndex(header => aliases[key].includes(header));
-        const titleIndex = indexFor('title');
-        if (titleIndex < 0) throw new Error('Kolom judul wajib ada. Gunakan header "judul" atau "title".');
-
- const imported = [];
-        rows.slice(1).forEach((row, rowNumber) => {
-          const value = key => {
-            const index = indexFor(key);
-            return index >= 0 ? String(row[index] ?? '').trim() : '';
-          };
-          const title = String(row[titleIndex] ?? '').trim();
-          if (!title) return;
-          const stockRaw = value('stock');
-          const stock = stockRaw === '' ? 0 : Number(stockRaw);
-          if (!Number.isInteger(stock) || stock < 0) {
-            throw new Error(`Nilai stok tidak valid pada baris ${rowNumber + 2}.`);
-          }
-          imported.push({
-            title, author: value('author'), publisher: value('publisher'),
-            year: value('year'), isbn: value('isbn'), discipline: value('discipline'),
-            stock, shelf: value('shelf'), description: value('description'),
-            keywords: value('keywords'), pages: value('pages'), edition: value('edition'), coverUrl: value('coverUrl')
-          });
-          if (value('pages') && (!Number.isInteger(Number(value('pages'))) || Number(value('pages')) < 1)) throw new Error(`Jumlah halaman tidak valid pada baris ${rowNumber + 2}.`);
-        });
-        if (!imported.length) throw new Error('Tidak ditemukan baris buku dengan judul yang valid.');
-        if (!['administrator','petugas'].includes(window.FPIK_CURRENT_USER?.role)) throw new Error('Login petugas diperlukan untuk mengimpor data.');
-
-        const replace = el('import-replace').checked;
-        if (replace && loans.some(loan => !loan.returnDate)) {
-          throw new Error('Tidak dapat mengganti seluruh katalog karena masih ada peminjaman aktif.');
-        }
-        if (replace && booksFromServer) {
-          const { error } = await window.FPIK_SUPABASE.from('books').delete().not('id', 'is', null);
-          if (error) throw error;
-          books = [];
-        } else if (replace) books = [];
-
-        let added = 0, updated = 0;
-        for (const item of imported) {
-          const existing = item.isbn ? books.find(book => book.isbn && book.isbn.toLowerCase() === item.isbn.toLowerCase()) : null;
-          if (existing) {
-            const borrowed = loans.filter(loan => loan.bookId === existing.id && !loan.returnDate).length;
-            if (item.stock < borrowed) throw new Error(`Stok CSV untuk "${item.title}" lebih kecil dari jumlah yang sedang dipinjam.`);
-          }
-          if (booksFromServer) {
-            const saved = await saveBookToServer(item, existing?.id || null);
-            if (existing) { Object.assign(existing, saved); updated++; } else { books.push(saved); added++; }
-          } else if (existing) { Object.assign(existing, item); updated++; }
-          else { books.push({ id: uid(), ...item, createdAt: new Date().toISOString() }); added++; }
-        }
-        saveStorage(); renderAll();
-        const result = el('import-result');
-        result.className = 'mt-4 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800';
-        result.textContent = `Import selesai: ${added} buku ditambahkan, ${updated} buku diperbarui.`;
-        result.classList.remove('hidden');
-        el('import-form').reset();
-        showToast('Import data CSV berhasil.');
-      } catch (error) {
-        const result = el('import-result');
-        result.className = 'mt-4 rounded-xl bg-red-50 p-4 text-sm text-red-800';
-        result.textContent = `Import gagal: ${error.message}`;
-        result.classList.remove('hidden');
-        showToast(error.message, 'error');
-      }
-    };
-    reader.onerror = () => showToast('File tidak dapat dibaca.', 'error');
-    reader.readAsText(file, 'UTF-8');
-  }
-
-  function downloadTemplate() {
-    const csv = 'judul,pengarang,penerbit,tahun,isbn,sub-disiplin,stok,lokasi-rak,deskripsi,kata-kunci,jumlah-halaman,edisi,url-sampul\r\n"Biologi Laut","Nama Pengarang","Nama Penerbit",2022,9780000000000,"Ekologi Laut",5,"A-01","Pengantar ekologi laut","ekologi laut; perikanan",250,"Edisi kedua",https://contoh.ac.id/sampul.jpg\r\n';
-    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'template-koleksi-perpustakaan.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function init() {
-    el('current-year').textContent = new Date().getFullYear();
-
-    document.querySelectorAll('.nav-link').forEach(button => {
-      button.addEventListener('click', () => showPage(button.dataset.page));
-    });
-    el('mobile-menu-button').addEventListener('click', () => {
-      const nav = el('main-nav');
-      nav.classList.toggle('hidden');
-      nav.classList.toggle('flex');
-    });
-
-    el('catalog-search').addEventListener('input', renderCatalog);
-    el('catalog-grid').addEventListener('click', event => {
-      const trigger = event.target.closest('[data-book-detail]');
-      if (trigger) showBookDetail(trigger.dataset.bookDetail);
-    });
-    el('clear-search').addEventListener('click', () => {
-      el('catalog-search').value = '';
-      renderCatalog();
-    });
-    el('book-form').addEventListener('submit', handleBookSubmit);
-    el('book-cancel').addEventListener('click', resetBookForm);
-    el('book-table-search').addEventListener('input', renderBooksTable);
-    el('books-table').addEventListener('click', event => {
-      const edit = event.target.closest('[data-edit-book]');
-      const remove = event.target.closest('[data-delete-book]');
-      if (edit) editBook(edit.dataset.editBook);
-      if (remove) deleteBook(remove.dataset.deleteBook);
-    });
-    el('loan-form').addEventListener('submit', handleLoanSubmit);
-    el('return-form').addEventListener('submit', handleReturnSubmit);
-    el('return-loan').addEventListener('change', renderReturnPreview);
-    el('import-form').addEventListener('submit', handleImport);
-    el('download-template').addEventListener('click', downloadTemplate);
-
-    renderAll();
-    if (window.FPIK_AUTH_READY) window.FPIK_AUTH_READY.then(loadBooksFromServer);
-    else loadBooksFromServer();
-  }
-
-  document.addEventListener('DOMContentLoaded', init);
-})();
+  <footer class="mt-8 bg-ocean-950 py-5 text-center text-xs text-ocean-100">
+    Dikembangkan sebagai aplikasi Single Page Application • FPIK Universitas Khairun
+  </footer>
+  </div>
+  <script src="./config.js"></script>
+  <script src="./auth.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
